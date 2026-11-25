@@ -1454,6 +1454,15 @@ def save_notification_settings():
         "voice_cooldown_sec", "voice_delay_sec", "voice_ring_seconds",
     )
     values = {key: request.form.get(key, "") for key in keys}
+    values["message_template"] = values["message_template"].strip() or (
+        "🚨 VHS-Security: {title}\nЗона: {zone}\nКамера: {camera}\nТип: {type}\nВремя: {time}"
+    )
+    values["sms_template"] = values["sms_template"].strip() or (
+        "Тревога: {title}. Зона: {zone}. Камера: {camera}. {time}"
+    )
+    values["voice_delay_sec"] = values["voice_delay_sec"] or "60"
+    values["voice_cooldown_sec"] = values["voice_cooldown_sec"] or "300"
+    values["voice_ring_seconds"] = values["voice_ring_seconds"] or "15"
     for key in ("notify_enabled", "gsm_enabled", "sms_enabled", "voice_enabled"):
         values[key] = "1" if request.form.get(key) else "0"
     notifications.save_settings(values)

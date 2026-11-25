@@ -12,6 +12,22 @@ VHS-Streamer  →  VHS-Viewer  →  VHS-Security
 
 ---
 
+## Скриншоты
+
+### Карта объекта
+
+![Карта объекта](docs/screenshots/map.png)
+
+### Расписание зоны
+
+![Расписание охраны зоны](docs/screenshots/zone-schedule.png)
+
+### Уведомления и GSM
+
+![Настройки уведомлений](docs/screenshots/settings-notifications.png)
+
+---
+
 ## Три сервиса
 
 | Сервис | Порт | Роль |

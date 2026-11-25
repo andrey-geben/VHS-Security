@@ -36,7 +36,7 @@
         .notify-section .notify-flags label{display:flex;align-items:center;gap:4px;white-space:nowrap}
         .notify-section .notify-templates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
         .notify-section .notify-templates label{display:grid;gap:5px;font-size:11px;color:var(--muted)}
-        .notify-section .notify-templates textarea{width:100%;box-sizing:border-box;min-height:76px;resize:vertical;background:#0d1720;color:var(--ink);border:1px solid #355062;border-radius:5px;padding:8px;font:inherit}
+        .notify-section .notify-templates textarea{width:100%;box-sizing:border-box;min-height:118px;resize:vertical;background:#0d1720!important;color:#dfe9ef!important;-webkit-text-fill-color:#dfe9ef;border:1px solid #355062;border-radius:5px;padding:8px;font:inherit}
         .notify-section .notify-delays{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
         .notify-section .notify-delays input{width:100%;box-sizing:border-box}
         .notify-section .notify-submit{display:flex;justify-content:flex-end;padding-top:2px}
@@ -91,8 +91,8 @@
         </div>
 
         <div class="notify-templates">
-          <label>Шаблон сообщения<textarea name="message_template" rows="3">{{ notify.get('message_template','🚨 VHS-Security: {title}\nЗона: {zone}\nКамера: {camera}\nТип: {type}\nВремя: {time}') }}</textarea></label>
-          <label>Шаблон SMS<textarea name="sms_template" rows="3">{{ notify.get('sms_template','Тревога: {title}. Зона: {zone}. Камера: {camera}. {time}') }}</textarea></label>
+          <label>Шаблон сообщения<textarea name="message_template" rows="3">{{ notify.get('message_template') or '🚨 VHS-Security: {title}\nЗона: {zone}\nКамера: {camera}\nТип: {type}\nВремя: {time}' }}</textarea></label>
+          <label>Шаблон SMS<textarea name="sms_template" rows="3">{{ notify.get('sms_template') or 'Тревога: {title}. Зона: {zone}. Камера: {camera}. {time}' }}</textarea></label>
         </div>
 
         <div class="notify-delays">

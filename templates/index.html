@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Карта — VHS-Security{% endblock %}
+{% block content %}
+<style>
+body[data-role="viewer"] .admin-only{display:none!important}
+body[data-role="viewer"] .rotate-handle{display:none!important}
+body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
+.guard-summary{font-size:10px;color:var(--muted);white-space:nowrap}
+.guard-summary b{color:var(--green)}
+.guard-btn{width:100%;margin-top:7px;background:#1b2b24!important;border-color:#335b48!important;color:#8ee0b3!important}
+.guard-btn.disarm{background:#2a171a!important;border-color:#5d3035!important;color:#ff9aa2!important}
+.marker .camera-dot{background:#77828b;box-shadow:0 0 0 4px rgba(119,130,139,.14)}
+.marker.armed .camera-dot{background:var(--green);border-color:#d9fff0;box-shadow:0 0 0 4px rgba(87,192,138,.2)}
+.marker.armed.alarm .camera-dot{background:var(--red)}
+.event.armed-event{background:rgba(240,91,99,.055);border-left:3px solid var(--red)}
+.event.unarmed-event{opacity:.72}
+.alarm-badge{display:inline-block;margin-left:7px;padding:1px 5px;border-radius:3px;background:var(--red);color:#fff;font-size:8px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+.schedule-overlay{position:fixed;inset:0;z-index:130;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:20px}
+.schedule-card{width:min(560px,100%);background:#101a23;border:1px solid #355062;border-radius:10px;padding:18px;color:var(--ink)}
+.schedule-toggle{display:flex;align-items:center;gap:8px;margin:14px 0;color:var(--muted);font-size:12px}
+.schedule-table{width:100%;border-collapse:collapse;font-size:11px}.schedule-table th{color:var(--muted);font-weight:400;text-align:left;padding:6px}.schedule-table td{padding:5px 6px;border-top:1px solid #263846}.schedule-table input[type=time]{width:100%;padding:5px}.schedule-table input[type=checkbox]{margin-right:6px}
+.alarm-type-checks{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:8px 0 12px;padding:8px;border:1px solid #2a4152;border-radius:5px;font-size:11px;color:var(--muted)}
+.alarm-type-checks>span{color:var(--ink);font-weight:600}
+.alarm-type-checks label{display:flex;gap:4px;align-items:center}
+</style>
+<div class="workspace">
+  <section class="map-panel">
+    <div class="toolbar">
+      <div>
+        <div class="kicker">Охранное телевидение</div>
+        <h1>Карта объекта</h1>
+      </div>
+      <div class="toolbar-actions">
+        <select id="floorSelect" aria-label="Этаж"></select>
+        <span class="guard-summary" id="guardSummary"></span>
+        <button class="ghost admin-only" id="discoverBtn">Найти Viewer</button>
+        <button class="ghost admin-only" id="wallBtn">Стены</button>
+        <button class="ghost admin-only" id="wallClear">Очистить стены</button>
+        <button class="ghost admin-only" id="syncBtn">Обновить события</button>
+      </div>
+    </div>
+    <div class="map-status" id="status">Загрузка…</div>
+    <div class="plan-stage" id="planStage">
+      <div class="camera-editor" id="cameraEditor" hidden>
+        <div class="ce-head"><b id="ceName">Камера</b><button type="button" class="ce-close" id="ceClose" title="Закрыть">×</button></div>
+        <label>Направление <output id="ceAngleOut">0°</output>
+          <input type="range" id="ceAngle" min="0" max="360" step="1">
+        </label>
+        <label>Сектор обзора <output id="ceFovOut">70°</output>
+          <input type="range" id="ceFov" min="10" max="180" step="1">
+        </label>
+        <label>Дальность <output id="ceRangeOut">35%</output>
+          <input type="range" id="ceRange" min="5" max="100" step="1">
+        </label>
+        <div class="ce-actions"><button type="button" class="primary admin-only" id="ceSave">Сохранить</button><button type="button" class="ghost" id="ceStream">Поток</button></div>
+        <button type="button" class="guard-btn admin-only" id="ceArm">Взять на охрану</button>
+        <button type="button" class="ghost admin-only" id="ceSchedule" style="width:100%;margin-top:7px">Расписание охраны</button>
+        <div class="ce-preview" id="cePreview" hidden><video id="cePlayer" autoplay muted playsinline></video><div id="cePlayerError" class="ce-player-error"></div></div>
+        <p class="ce-hint">Тяни круглую ручку вокруг камеры, чтобы повернуть сектор.</p>
+        <p class="ce-dead" id="ceDead" hidden>⚠ Сектор выходит за границы плана — часть зоны мёртвая.</p>
+      </div>
+      <div class="empty-plan" id="emptyPlan">
+        <b>План этажа не загружен</b>
+        <span>Загрузите PNG/JPG/SVG плана в настройках, затем расставьте камеры.</span>
+        <a class="button" href="{{ url_for('settings') }}">В настройки</a>
+      </div>
+      <img id="planImage" alt="План этажа" hidden>
+      <svg id="coverage" class="coverage" aria-hidden="true"></svg>
+      <div id="markers" class="markers"></div>
+      <div id="eventMarkers" class="event-markers"></div>
+    </div>
+    <div class="legend"><span><i class="dot ok"></i> камера</span><span><i class="dot alarm"></i> событие</span><span><i class="dot plate"></i> номер</span></div>
+  </section>
+
+  <aside class="events-panel">
+    <div class="panel-head"><div><div class="kicker">Оперативный журнал</div><h2>События</h2></div><div class="panel-tools"><span id="eventCount">0</span><button type="button" class="event-clear admin-only" id="clearEvents" title="Очистить журнал этажа">Очистить</button></div></div>
+    <div class="event-filter" id="eventFilterBar" hidden><span id="eventFilterName">Камера</span><button type="button" id="clearEventFilter" title="Показать все события">×</button></div>
+    <div id="eventList" class="event-list"><p class="muted">Нет событий. Нажмите «Обновить события».</p></div>
+    <div class="panel-foot"><span id="lastSync">—</span><a href="{{ url_for('settings') }}">Настройки</a></div>
+  </aside>
+</div>
+
+<div class="snapshot-overlay" id="snapshotModal" hidden>
+  <div class="snapshot-card">
+    <div class="snapshot-head"><div><div class="kicker">Событие</div><h2>Снепшот</h2></div><button type="button" class="ce-close" id="snapshotClose">×</button></div>
+    <p class="muted" id="snapshotCaption">Снимок из VHS-Viewer</p>
+    <img id="snapshotImage" alt="Снепшот события">
+    <div class="snapshot-actions"><a class="button" id="snapshotDownload" download>Скачать</a><a class="ghost" id="snapshotOpen" target="_blank" rel="noopener">Открыть</a></div>
+    <div class="snapshot-error" id="snapshotError" hidden></div>
+  </div>
+</div>
+
+<div class="schedule-overlay" id="scheduleModal" hidden>
+  <div class="schedule-card">
+    <div class="snapshot-head"><div><div class="kicker">Охрана</div><h2>Расписание охраны</h2></div><button type="button" class="ce-close" id="scheduleClose">×</button></div>
+    <label class="schedule-toggle"><input type="checkbox" id="scheduleEnabled"> Использовать расписание</label>
+    <label class="schedule-toggle">Праздники:
+      <select id="holidayMode" style="padding:5px">
+        <option value="weekday">Как в обычный день</option>
+        <option value="weekend">Как в выходной</option>
+        <option value="custom">По отдельному расписанию</option>
+        <option value="disarmed">Не брать на охрану</option>
+      </select>
+    </label>
+    <div class="holiday-times" id="holidayTimes" hidden>
+      <label>Праздник: взять <input type="time" id="holidayArm"></label>
+      <label>снять <input type="time" id="holidayDisarm"></label>
+    </div>
+    <div class="weekend-times" id="weekendTimes" hidden>
+      <label>Выходные: взять <input type="time" id="weekendArm"></label>
+      <label>снять <input type="time" id="weekendDisarm"></label>
+    </div>
+    <div class="alarm-type-checks" id="alarmTypeChecks">
+      <span>Тревоги:</span>
+      <label><input type="checkbox" value="person"> Люди</label>
+      <label><input type="checkbox" value="vehicle"> Машины</label>
+      <label><input type="checkbox" value="plate"> Номера</label>
+      <label><input type="checkbox" value="animal"> Животные</label>
+    </div>
+    <table class="schedule-table"><thead><tr><th>День</th><th>Взять</th><th>Снять</th></tr></thead><tbody id="scheduleRows"></tbody></table>
+    <p class="muted">Если время снятия меньше времени взятия, охрана переходит через полночь. Праздничные дни — на охране круглосуточно.</p>
+    <div class="snapshot-actions"><button type="button" class="primary" id="scheduleSave">Сохранить</button><button type="button" class="ghost" id="scheduleCancel">Отмена</button></div>
+  </div>
+</div>
+
+<div class="discovery-overlay" id="discovery" hidden>
+  <div class="discovery-card">
+    <div class="discovery-head"><div><div class="kicker">Сопряжение</div><h2>Поиск VHS-Viewer</h2></div><button type="button" class="ce-close" id="discoveryClose">×</button></div>
+    <p class="muted">Поиск выполняется по локальной сети на порту 8200. Можно указать подсеть вручную.</p>
+    <div class="discovery-search"><input id="discoverySubnet" placeholder="192.168.1.0/24"><button class="primary" type="button" id="discoveryRun">Искать</button></div>
+    <div id="discoveryList" class="discovery-list"><p class="muted">Нажми «Искать», чтобы найти Viewer.</p></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/whep-player.js') }}"></script><script src="{{ url_for('static', filename='js/map.js') }}"></script>{% endblock %}

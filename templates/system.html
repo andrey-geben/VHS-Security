@@ -1,0 +1,20 @@
+﻿{% extends "base.html" %}
+{% block title %}Система — VHS-Security{% endblock %}
+{% block content %}
+<div class="settings">
+  <div class="toolbar"><div><div class="kicker">Единая система</div><h1>Модули VHS</h1></div><a class="button" href="{{ url_for('index') }}">← На карту</a></div>
+  <div class="settings-grid">
+  {% for module in modules %}
+    <section class="card">
+      <h2>{{ module.name }}</h2>
+      <p class="muted">{{ module.role }}</p>
+      {% if module.url %}<p class="muted">{{ module.url }}</p>
+        <p>{% if module.online %}<span class="dot ok"></span>онлайн{% else %}<span class="dot alarm"></span>недоступен{% endif %}</p>
+        <a class="button" href="{{ module.url }}" target="_blank" rel="noopener">Открыть</a>
+      {% else %}<p class="muted">URL не задан в .env</p>{% endif %}
+    </section>
+  {% endfor %}
+  </div>
+  <div class="card" style="margin-top:16px"><h2>Как это связано</h2><p class="muted">Streamer отдаёт камеры и события, Viewer — номера и объекты, Security показывает карту и журнал. Единый вход пока не включён: модули открываются по ссылкам.</p></div>
+</div>
+{% endblock %}

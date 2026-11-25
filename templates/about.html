@@ -1,0 +1,18 @@
+﻿{% extends "base.html" %}
+{% block title %}О программе — VHS-Security{% endblock %}
+{% block content %}
+<div class="settings" style="max-width:720px">
+  <div class="toolbar"><div><div class="kicker">О программе</div><h1>{{ name }}</h1></div><a class="button" href="{{ url_for('index') }}">← На карту</a></div>
+  <section class="card">
+    <table class="about-table">
+      <tr><td>Название</td><td><b>{{ name }}</b></td></tr>
+      <tr><td>Версия</td><td><b>{{ version }}</b></td></tr>
+      <tr><td>Автор</td><td><b>{{ author }}</b></td></tr>
+      <tr><td>Copyright</td><td>{{ copyright }}</td></tr>
+      <tr><td>Лицензия</td><td>{{ license }}</td></tr>
+      <tr><td>Сайт</td><td><a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a></td></tr>
+    </table>
+    <p class="muted" style="margin-top:18px;line-height:1.6">VHS-Security — слой охраны поверх VHS-Streamer и VHS-Viewer: карта объекта, камеры, зоны обзора, события и тревоги.</p>
+  </section>
+</div>
+{% endblock %}

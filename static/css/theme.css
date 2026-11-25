@@ -1,0 +1,29 @@
+﻿/* VHS-Security light theme */
+html[data-theme="light"] {
+  --bg:#edf3f7; --panel:#ffffff; --panel2:#f4f8fa; --line:#cddbe5;
+  --ink:#172838; --muted:#5d7282; --cyan:#0b7f92; --gold:#9a6700;
+  --red:#bd3543; --green:#237a4b;
+}
+html[data-theme="light"] body { background:#edf3f7 !important; background-image:none !important; color:var(--ink); }
+html[data-theme="light"] .topbar { background:rgba(255,255,255,.94) !important; border-bottom-color:#d4e1e9 !important; }
+html[data-theme="light"] .topbar nav a, html[data-theme="light"] .topbar nav .link { color:#466276 !important; }
+html[data-theme="light"] .topbar nav a:hover, html[data-theme="light"] .topbar nav .link:hover { color:var(--ink) !important; }
+html[data-theme="light"] .map-panel, html[data-theme="light"] .events-panel, html[data-theme="light"] .card { background:#ffffff !important; border-color:#d1dfe8 !important; box-shadow:0 10px 28px rgba(30,55,75,.08) !important; }
+html[data-theme="light"] .plan-stage { background:#e3ebf1 !important; border-color:#cbdbe5 !important; }
+html[data-theme="light"] select, html[data-theme="light"] input { background:#f8fbfd !important; border-color:#c7d8e3 !important; color:var(--ink) !important; }
+html[data-theme="light"] .panel-head, html[data-theme="light"] .panel-foot { border-color:#dbe6ed !important; }
+html[data-theme="light"] .event { border-bottom-color:#e1eaf0 !important; }
+html[data-theme="light"] .event-head time, html[data-theme="light"] .event p, html[data-theme="light"] .panel-foot, html[data-theme="light"] .legend { color:#667c8c !important; }
+html[data-theme="light"] .camera-editor { background:rgba(255,255,255,.98) !important; border-color:#bcd2df !important; color:var(--ink) !important; }
+html[data-theme="light"] .marker .camera-label { background:rgba(255,255,255,.92) !important; color:var(--ink) !important; border-color:#cbdbe5 !important; }
+html[data-theme="light"] .ce-preview { border-color:#cbdbe5 !important; }
+html[data-theme="light"] .discovery-card, html[data-theme="light"] .snapshot-card { background:#ffffff !important; border-color:#bcd2df !important; color:var(--ink) !important; }
+html[data-theme="light"] .snapshot-head h2, html[data-theme="light"] .discovery-head h2 { color:var(--ink) !important; }
+html[data-theme="light"] .vhs-footer { color:#6a8090 !important; }
+html[data-theme="light"] .vhs-footer a { color:#5d7282 !important; }
+html[data-theme="light"] .login-card { background:#fff !important; border-color:#cddbe5 !important; }
+html[data-theme="light"] .login-card h1 { color:var(--ink) !important; }
+html[data-theme="light"] .event.unread { background:rgba(154,103,0,.08) !important; }
+html[data-theme="light"] .event.selected, html[data-theme="light"] .event.active { background:rgba(11,127,146,.09) !important; }
+html[data-theme="light"] .event-clear { background:#fff0f1 !important; color:#a52f3b !important; }
+html[data-theme="light"] .theme-toggle { background:#eef4f8 !important; border-color:#c7d8e3 !important; color:var(--ink) !important; }

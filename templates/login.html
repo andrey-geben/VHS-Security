@@ -1,0 +1,18 @@
+﻿{% extends "base.html" %}
+{% block title %}Вход — VHS-Security{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="kicker">VHS-Security</div>
+    <h1>Карта объекта</h1>
+    <p class="muted">Камеры, планы этажей и события охраны в одном окне.</p>
+    {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+    <form method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+      <label>Логин<input name="username" required autocomplete="username"></label>
+      <label>Пароль<input name="password" type="password" required autocomplete="current-password"></label>
+      <button class="primary" type="submit">Войти</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Настройки — VHS-Security{% endblock %}
+{% block content %}
+<div class="settings">
+  <div class="toolbar"><div><div class="kicker">Конфигурация</div><h1>Объект и камеры</h1></div><a class="button" href="{{ url_for('index') }}">← На карту</a></div>
+  <div class="settings-grid">
+    <section class="card">
+      <h2>Здания</h2>
+      {% for b in buildings %}<div class="row"><b>{{ b.name }}</b><span class="muted">{{ b.address }}</span></div>{% else %}<p class="muted">Нет зданий.</p>{% endfor %}
+      <form method="post" action="{{ url_for('add_building') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input name="name" placeholder="Название" required><input name="address" placeholder="Адрес"><button class="ghost" type="submit">Добавить здание</button></form>
+    </section>
+    <section class="card">
+      <h2>Этажи</h2>
+      {% for f in floors %}<div class="row"><b>{{ f.building_name }} · {{ f.name }}</b><span class="muted">{{ f.plan_filename or 'без плана' }}</span>
+        <form method="post" action="{{ url_for('upload_plan', floor_id=f.id) }}" enctype="multipart/form-data"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="file" name="plan" accept=".png,.jpg,.jpeg,.webp,.svg"><button class="ghost" type="submit">Загрузить план</button></form>
+      </div>{% else %}<p class="muted">Нет этажей.</p>{% endfor %}
+      <form method="post" action="{{ url_for('add_floor') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="building_id">{% for b in buildings %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select><input name="name" placeholder="Название этажа" required><input name="level" type="number" value="1" style="max-width:90px"><button class="ghost" type="submit">Добавить этаж</button></form>
+    </section>
+    <section class="card wide">
+      <h2>Пользователи</h2>
+      <p class="muted">Встроенный <b>admin</b> задаётся в <code>.env</code>. Здесь можно добавить пользователей только для просмотра карты, камер и событий.</p>
+      {% for u in users %}<div class="row"><b>{{ u.username }}</b><span class="muted">{{ u.role }}</span>
+        <form method="post" action="{{ url_for('delete_user', user_id=u.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Удалить</button></form>
+      </div>{% else %}<p class="muted">Дополнительных пользователей нет.</p>{% endfor %}
+      <form method="post" action="{{ url_for('add_user') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input name="username" placeholder="Логин" required><input name="password" type="password" placeholder="Пароль" required minlength="4"><select name="role"><option value="viewer">Только просмотр</option><option value="admin">Администратор</option></select><button class="ghost" type="submit">Добавить пользователя</button></form>
+    </section>
+    <section class="card wide notify-section">
+      <style>
+        .notify-section .notify-form{display:grid;gap:14px}
+        .notify-section .notify-switch{display:flex;align-items:center;gap:7px;font-size:12px;width:max-content;color:var(--ink)}
+        .notify-section .notify-channels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+        .notify-section .notify-channel{display:grid;gap:8px;min-width:0;padding:12px;border:1px solid #2a4152;border-radius:6px;background:rgba(255,255,255,.012)}
+        .notify-section .notify-channel h3{margin:0 0 2px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink)}
+        .notify-section .notify-channel input{width:100%;box-sizing:border-box}
+        .notify-section .notify-flags{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--muted)}
+        .notify-section .notify-flags label{display:flex;align-items:center;gap:4px;white-space:nowrap}
+        .notify-section .notify-templates{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+        .notify-section .notify-templates label{display:grid;gap:5px;font-size:11px;color:var(--muted)}
+        .notify-section .notify-templates textarea{width:100%;box-sizing:border-box;min-height:76px;resize:vertical;background:#0d1720;color:var(--ink);border:1px solid #355062;border-radius:5px;padding:8px;font:inherit}
+        .notify-section .notify-delays{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+        .notify-section .notify-delays input{width:100%;box-sizing:border-box}
+        .notify-section .notify-submit{display:flex;justify-content:flex-end;padding-top:2px}
+        .notify-section .notify-tests{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0 8px}
+        .notify-section .notify-tests form{margin:0}
+        .notify-section #gsmStatus{max-height:160px;overflow:auto;white-space:pre-wrap;word-break:break-word}
+        .notify-section .notification-log{display:grid;gap:4px;max-height:240px;overflow:auto}
+        .notify-section .notification-log .row{align-items:flex-start;gap:8px}
+        .notify-section .notification-log small{display:block;color:var(--red);font-size:10px;overflow-wrap:anywhere}
+        @media(max-width:760px){
+          .notify-section .notify-channels,
+          .notify-section .notify-templates,
+          .notify-section .notify-delays{grid-template-columns:1fr}
+        }
+      </style>
+      <h2>Уведомления</h2>
+      <p class="muted">Уведомления отправляются только по тревогам, не по всем событиям Viewer.</p>
+      <form method="post" action="{{ url_for('save_notification_settings') }}" class="notify-form">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <label class="notify-switch"><input type="checkbox" name="notify_enabled" {% if notify.get('notify_enabled') == '1' %}checked{% endif %}> Включить уведомления</label>
+
+        <div class="notify-channels">
+          <fieldset class="notify-channel">
+            <h3>Telegram</h3>
+            <input name="telegram_bot_token" placeholder="Bot token" value="{{ notify.get('telegram_bot_token','') }}">
+            <input name="telegram_chat_id" placeholder="Chat ID" value="{{ notify.get('telegram_chat_id','') }}">
+          </fieldset>
+          <fieldset class="notify-channel">
+            <h3>MAX</h3>
+            <input name="max_bot_token" placeholder="Bot token" value="{{ notify.get('max_bot_token','') }}">
+            <input name="max_chat_id" placeholder="Chat ID" value="{{ notify.get('max_chat_id','') }}">
+            <input name="max_webhook_url" placeholder="Webhook URL (альтернатива)" value="{{ notify.get('max_webhook_url','') }}">
+          </fieldset>
+          <fieldset class="notify-channel">
+            <h3>Webhook</h3>
+            <input name="webhook_url" placeholder="https://..." value="{{ notify.get('webhook_url','') }}">
+            <input name="webhook_secret" placeholder="Secret" value="{{ notify.get('webhook_secret','') }}">
+          </fieldset>
+          <fieldset class="notify-channel">
+            <h3>GSM</h3>
+            <div class="notify-flags">
+              <label><input type="checkbox" name="gsm_enabled" {% if notify.get('gsm_enabled') == '1' %}checked{% endif %}> Модем</label>
+              <label><input type="checkbox" name="sms_enabled" {% if notify.get('sms_enabled') == '1' %}checked{% endif %}> SMS</label>
+              <label><input type="checkbox" name="voice_enabled" {% if notify.get('voice_enabled') == '1' %}checked{% endif %}> Звонок</label>
+            </div>
+            <input name="gsm_phone" placeholder="+7..." value="{{ notify.get('gsm_phone','') }}">
+            <div class="notify-delays">
+              <input name="gsm_com_port" placeholder="COM3" value="{{ notify.get('gsm_com_port','') }}">
+              <input name="gsm_baud" placeholder="115200" value="{{ notify.get('gsm_baud','115200') }}">
+            </div>
+          </fieldset>
+        </div>
+
+        <div class="notify-templates">
+          <label>Шаблон сообщения<textarea name="message_template" rows="3">{{ notify.get('message_template','🚨 VHS-Security: {title}\nЗона: {zone}\nКамера: {camera}\nТип: {type}\nВремя: {time}') }}</textarea></label>
+          <label>Шаблон SMS<textarea name="sms_template" rows="3">{{ notify.get('sms_template','Тревога: {title}. Зона: {zone}. Камера: {camera}. {time}') }}</textarea></label>
+        </div>
+
+        <div class="notify-delays">
+          <input name="voice_delay_sec" placeholder="Звонок через, сек" value="{{ notify.get('voice_delay_sec','60') }}">
+          <input name="voice_cooldown_sec" placeholder="Пауза между звонками, сек" value="{{ notify.get('voice_cooldown_sec','300') }}">
+          <input name="voice_ring_seconds" placeholder="Длительность звонка, сек" value="{{ notify.get('voice_ring_seconds','15') }}">
+        </div>
+        <div class="notify-submit"><button class="primary" type="submit">Сохранить уведомления</button></div>
+      </form>
+
+      <div class="notify-tests">
+        <b>Проверка</b>
+        <form method="post" action="{{ url_for('test_notification') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="channel" value="sms"><button class="ghost" type="submit">Тест SMS</button></form>
+        <form method="post" action="{{ url_for('test_notification') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="channel" value="voice"><button class="ghost" type="submit">Тест звонка</button></form>
+        <form method="post" action="{{ url_for('test_notification') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="hidden" name="channel" value="telegram"><button class="ghost" type="submit">Тест Telegram</button></form>
+        <button class="ghost" type="button" id="gsmStatusBtn">Статус GSM</button>
+      </div>
+      <pre id="gsmStatus" class="muted">Статус модема не запрошен.</pre>
+
+      <h3>Журнал отправок</h3>
+      <div class="notification-log">
+        {% for j in jobs %}<div class="row"><b>{{ j.channel }}</b><span class="muted">{{ j.status }} · {{ j.recipient }} · {{ j.created_at|int }}</span>{% if j.last_error %}<small>{{ j.last_error }}</small>{% endif %}</div>{% else %}<p class="muted">Отправок пока нет.</p>{% endfor %}
+      </div>
+    </section>
+    <section class="card wide">
+      <h2>Зоны охраны</h2>
+      <p class="muted">Камера привязывается к зоне. Расписание и охрана задаются для зоны.</p>
+      {% for z in zones %}<div class="row"><b>{{ z.name }}</b><span class="muted">этаж {{ z.floor_id }} · камер: {{ z.camera_count if z.camera_count is defined else '' }}</span></div>{% else %}<p class="muted">Зон нет.</p>{% endfor %}
+      <form method="post" action="{{ url_for('add_zone_page') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="floor_id">{% for f in floors %}<option value="{{ f.id }}">{{ f.building_name }} · {{ f.name }}</option>{% endfor %}</select><input name="name" placeholder="Название зоны" required><button class="ghost" type="submit">Добавить зону</button></form>
+    </section>
+    <section class="card wide">
+      <h2>Праздничные дни</h2>
+      <p class="muted">Праздник сам по себе не включает охрану. В расписании зоны выберите: «как в выходной», «по отдельному расписанию» или «не брать на охрану».</p>
+      {% for h in holidays %}<div class="row"><b>{{ h.date }}</b><span class="muted">{{ h.name }}</span>
+        <form method="post" action="{{ url_for('delete_holiday_page', holiday_id=h.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Удалить</button></form>
+      </div>{% else %}<p class="muted">Праздники не заданы.</p>{% endfor %}
+      <form method="post" action="{{ url_for('add_holiday_page') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="date" name="date" required><input name="name" placeholder="Название"><button class="ghost" type="submit">Добавить праздник</button></form>
+      <form method="post" action="{{ url_for('import_holidays') }}" class="holiday-import"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="number" name="year" min="2020" max="2100" value="{{ current_year }}" style="max-width:100px"><button class="ghost" type="submit">Взять из интернета</button></form>
+      {% if request.args.get('imported') is not none %}<p class="muted">Импорт завершён: добавлено {{ request.args.get('imported') }}.</p>{% endif %}
+    </section>
+    <section class="card wide">
+      <h2>Камеры</h2>
+      <p class="muted">Камеры и потоки импортируются из VHS-Viewer. После импорта перетащите их на плане. Камеры, которых больше нет в Viewer, удаляются при следующей синхронизации.</p>
+      {% for c in cameras %}<div class="row"><b>{{ c.name }}</b><span class="muted">{{ c.camera_ref }} · {{ c.floor_name }} · зона: {{ c.zone_name or 'не назначена' }}</span>
+        <form method="post" action="{{ url_for('assign_camera_zone', camera_id=c.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="zone_id">{% for z in zones if z.floor_id == c.floor_id %}<option value="{{ z.id }}" {% if z.id == c.zone_id %}selected{% endif %}>{{ z.name }}</option>{% endfor %}</select><button class="ghost" type="submit">Привязать к зоне</button></form>
+      </div>{% else %}<p class="muted">Камер нет.</p>{% endfor %}
+    </section>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById("gsmStatusBtn")?.addEventListener("click", async () => {
+  const out = document.getElementById("gsmStatus");
+  out.textContent = "Запрос статуса…";
+  try {
+    const r = await fetch("/api/gsm/status", { headers: { "X-CSRF-Token": window.CSRF_TOKEN } });
+    out.textContent = JSON.stringify(await r.json(), null, 2);
+  } catch (e) { out.textContent = String(e); }
+});
+</script>
+{% endblock %}

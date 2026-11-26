@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Мозаика — VHS-Security{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/mosaic.css') }}">
+<div class="mosaic-page">
+  <div class="mosaic-head">
+    <div>
+      <div class="kicker">Видеонаблюдение</div>
+      <h1>Мозаика камер</h1>
+    </div>
+    <div class="mosaic-controls">
+      <label>Группировка
+        <select id="mosaicGroup">
+          <option value="floor">По этажам</option>
+          <option value="guard">По охране</option>
+        </select>
+      </label>
+      <button type="button" class="ghost" id="mosaicRefresh">Обновить</button>
+      <a class="button" href="{{ url_for('index') }}">← На карту</a>
+    </div>
+  </div>
+  <div class="mosaic-status" id="mosaicStatus">Загрузка камер…</div>
+  <div id="mosaicGroups"></div>
+  <div class="mosaic-legend"><span><i class="dot red"></i> событие в журнале</span><span><i class="dot green"></i> на охране</span><span><i class="dot gray"></i> снята</span></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/whep-player.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mosaic.js') }}"></script>
+{% endblock %}

@@ -1667,6 +1667,66 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/mosaic")
+@login_required
+def mosaic_page():
+    return render_template("mosaic.html")
+
+
+@app.post("/api/whep")
+@login_required
+def api_whep():
+    data = request.get_json(silent=True) or {}
+    stream_url = str(data.get("url") or "").strip()
+    sdp = str(data.get("sdp") or "")
+    if not stream_url or not sdp:
+        return jsonify({"ok": False, "error": "url и sdp обязательны"}), 400
+    try:
+        parsed = urlparse(stream_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("некорректный URL")
+        whep_url = parsed.origin if hasattr(parsed, "origin") else f"{parsed.scheme}://{parsed.netloc}"
+        whep_url = whep_url.rstrip("/") + parsed.path.rstrip("/") + "/whep"
+        headers = {"Content-Type": "application/sdp", "Accept": "application/sdp"}
+        if parsed.username or parsed.password:
+            credentials = f"{parsed.username or ''}:{parsed.password or ''}"
+            headers["Authorization"] = "Basic " + __import__("base64").b64encode(
+                credentials.encode("utf-8")
+            ).decode("ascii")
+        response = requests.post(whep_url, data=sdp.encode("utf-8"), headers=headers, timeout=15)
+        if not response.ok:
+            return jsonify({
+                "ok": False,
+                "error": f"MediaMTX WHEP HTTP {response.status_code}: {response.text[:200]}",
+            }), 502
+        return jsonify({"ok": True, "sdp": response.text})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+
+@app.get("/api/mosaic")
+@login_required
+def api_mosaic():
+    rows_data = rows(
+        "SELECT c.*, f.name AS floor_name, f.level AS floor_level, "
+        "z.name AS zone_name, z.armed AS zone_armed, z.schedule_enabled AS zone_schedule_enabled, "
+        "z.holiday_mode AS zone_holiday_mode, "
+        "(SELECT MAX(e.ts) FROM events e WHERE e.camera_id=c.id) AS last_event_ts, "
+        "(SELECT COUNT(*) FROM alarms a WHERE a.camera_id=c.id AND a.status='active') AS active_alarms "
+        "FROM cameras c JOIN floors f ON f.id=c.floor_id "
+        "LEFT JOIN zones z ON z.id=c.zone_id "
+        "WHERE c.enabled=1 ORDER BY f.level, f.name, c.name"
+    )
+    cameras = []
+    for camera in rows_data:
+        zone = one("SELECT * FROM zones WHERE id=?", (camera.get("zone_id"),)) if camera.get("zone_id") else None
+        camera["effective_armed"] = _zone_effective(zone) if zone else bool(camera.get("armed"))
+        camera["active_alarm"] = bool(camera.get("active_alarms"))
+        camera["last_event_ts"] = camera.get("last_event_ts") or 0
+        cameras.append(camera)
+    return jsonify({"cameras": cameras})
+
+
 def _ingest_viewer_event(ev: dict, floor_id: int | None = None):
     cam_ref = str(ev.get("camera_id") or "").strip()
     if not cam_ref:

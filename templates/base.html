@@ -14,6 +14,7 @@
   <a class="brand" href="{{ url_for('index') }}"><span class="mark">VS</span><span><b>VHS-Security</b><small>карта · камеры · события</small></span></a>
   <nav>
     <a href="{{ url_for('index') }}">Карта</a>
+    <a href="{{ url_for('mosaic_page') }}">Мозаика</a>
     {% if user and user.role == 'admin' %}<a href="{{ url_for('settings') }}">Настройки</a>{% endif %}
     <a href="{{ url_for('system_page') }}">Система</a>
     <button type="button" class="theme-toggle" id="theme-toggle" title="Переключить тему">🌙</button>

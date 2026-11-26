@@ -8,6 +8,18 @@
 .building-row form{margin:0}
 .building-row .danger{border-color:#6b2b33;color:#ff9aa2}
 @media(max-width:760px){.building-row{grid-template-columns:1fr}.building-edit{grid-template-columns:1fr}}
+.holiday-table-wrap{max-height:238px;overflow:auto;border:1px solid #273e4e;border-radius:6px;margin-top:10px}
+.holiday-table{width:100%;border-collapse:collapse;font-size:11px}
+.holiday-table th{position:sticky;top:0;z-index:1;background:#101c25;text-align:left;color:var(--muted);font-weight:500;font-size:9px;letter-spacing:.04em;text-transform:uppercase;padding:7px 9px;border-bottom:1px solid #2a4152}
+.holiday-table td{padding:6px 9px;border-bottom:1px solid #1c2b37;vertical-align:middle}
+.holiday-table tr:last-child td{border-bottom:0}
+.holiday-table tr:hover td{background:rgba(73,198,212,.035)}
+.holiday-date{white-space:nowrap;color:var(--ink);font-variant-numeric:tabular-nums}
+.holiday-actions-cell{width:1%;white-space:nowrap;text-align:right}
+.holiday-actions-cell form{margin:0;display:inline}
+.holiday-delete{padding:3px 7px!important;font-size:9px!important;border-color:#563039!important;color:#ff9aa2!important}
+.holiday-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
+.holiday-actions form{margin:0!important;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 </style>
 <div class="settings">
   <div class="toolbar"><div><div class="kicker">Конфигурация</div><h1>Объект и камеры</h1></div><a class="button" href="{{ url_for('index') }}">← На карту</a></div>
@@ -146,11 +158,22 @@
     <section class="card wide">
       <h2>Праздничные дни</h2>
       <p class="muted">Праздник сам по себе не включает охрану. В расписании зоны выберите: «как в выходной», «по отдельному расписанию» или «не брать на охрану».</p>
-      {% for h in holidays %}<div class="row"><b>{{ h.date }}</b><span class="muted">{{ h.name }}</span>
-        <form method="post" action="{{ url_for('delete_holiday_page', holiday_id=h.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="ghost" type="submit">Удалить</button></form>
-      </div>{% else %}<p class="muted">Праздники не заданы.</p>{% endfor %}
-      <form method="post" action="{{ url_for('add_holiday_page') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="date" name="date" required><input name="name" placeholder="Название"><button class="ghost" type="submit">Добавить праздник</button></form>
-      <form method="post" action="{{ url_for('import_holidays') }}" class="holiday-import"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="number" name="year" min="2020" max="2100" value="{{ current_year }}" style="max-width:100px"><button class="ghost" type="submit">Взять из интернета</button></form>
+      <div class="holiday-table-wrap">
+        <table class="holiday-table">
+          <thead><tr><th>Дата</th><th>Праздник</th><th></th></tr></thead>
+          <tbody>
+          {% for h in holidays %}<tr>
+            <td class="holiday-date">{{ h.date }}</td>
+            <td>{{ h.name }}</td>
+            <td class="holiday-actions-cell"><form method="post" action="{{ url_for('delete_holiday_page', holiday_id=h.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><button class="ghost holiday-delete" type="submit">Удалить</button></form></td>
+          </tr>{% else %}<tr><td colspan="3" class="muted">Праздники не заданы.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="holiday-actions">
+        <form method="post" action="{{ url_for('add_holiday_page') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="date" name="date" required><input name="name" placeholder="Название"><button class="ghost" type="submit">Добавить</button></form>
+        <form method="post" action="{{ url_for('import_holidays') }}" class="holiday-import"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="number" name="year" min="2020" max="2100" value="{{ current_year }}" style="max-width:90px"><button class="ghost" type="submit">Взять из интернета</button></form>
+      </div>
       {% if request.args.get('imported') is not none %}<p class="muted">Импорт завершён: добавлено {{ request.args.get('imported') }}.</p>{% endif %}
     </section>
     <section class="card wide">

@@ -495,6 +495,26 @@ VHS-Security/
 
 ---
 
+## Сборка exe
+
+Иконка приложения и favicon используют `icon.ico`.
+
+```powershell
+.\build_exe.bat
+```
+
+Результат:
+
+```text
+dist\VHS-Security.exe
+```
+
+Параметры сборки находятся в `VHS-Security.spec`: иконка `icon.ico`, шаблоны и статика включаются в exe. База, планы и `.env` создаются рядом с exe.
+
+Favicon доступен по `/favicon.ico` и подключён на всех страницах.
+
+---
+
 ## Тесты
 
 ```powershell

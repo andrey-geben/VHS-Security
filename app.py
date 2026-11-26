@@ -16,6 +16,7 @@ import json
 import os
 import secrets
 import sqlite3
+import sys
 import time
 import uuid
 from functools import wraps
@@ -42,7 +43,11 @@ import notifications
 import vhs_sso
 from __version__ import APP_FOOTER, APP_NAME, __author__, __copyright__, __license__, __url__, __version__
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = (
+    Path(sys.executable).resolve().parent
+    if getattr(sys, "frozen", False)
+    else Path(__file__).resolve().parent
+)
 
 
 def _load_env(path: Path):
@@ -1685,6 +1690,11 @@ def about():
         "about.html", name=APP_NAME, version=__version__, author=__author__,
         copyright=__copyright__, license=__license__, url=__url__,
     )
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon")
 
 
 @app.route("/")

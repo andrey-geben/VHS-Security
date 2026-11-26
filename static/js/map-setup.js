@@ -1,5 +1,5 @@
 (function () {
-  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null };
+  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null, drawMode: null, drawPoints: [] };
   const $ = (selector) => document.querySelector(selector);
   const CSRF = window.CSRF_TOKEN;
 
@@ -256,6 +256,7 @@
     renderFloorSelect();
     renderCameras();
     renderPlan();
+    renderWallLayer();
   }
 
   function currentCamera(id) {
@@ -392,6 +393,90 @@
     renderFloorSelect();
     renderPlan();
   });
+  function wallsList() {
+    return selectedFloor()?.walls || [];
+  }
+
+  function renderWallLayer() {
+    const svg = $("#setupWallLayer");
+    const stage = $("#setupStage");
+    if (!svg || !stage) return;
+    const width = stage.clientWidth || 1;
+    const height = stage.clientHeight || 1;
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.innerHTML = "";
+    const ns = "http://www.w3.org/2000/svg";
+    for (const wall of wallsList()) {
+      if (!Array.isArray(wall) || wall.length !== 4) continue;
+      const line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", (Number(wall[0]) / 100) * width);
+      line.setAttribute("y1", (Number(wall[1]) / 100) * height);
+      line.setAttribute("x2", (Number(wall[2]) / 100) * width);
+      line.setAttribute("y2", (Number(wall[3]) / 100) * height);
+      line.setAttribute("class", "wall-line");
+      svg.appendChild(line);
+    }
+    if (state.drawPoints.length) {
+      const points = state.drawPoints;
+      const path = document.createElementNS(ns, "path");
+      path.setAttribute("d", "M " + points.map(([x, y]) => `${(x / 100) * width} ${(y / 100) * height}`).join(" L ") + (state.drawMode === "polygon" ? " Z" : ""));
+      path.setAttribute("class", "wall-preview");
+      svg.appendChild(path);
+      for (const [x, y] of points) {
+        const circle = document.createElementNS(ns, "circle");
+        circle.setAttribute("cx", (x / 100) * width);
+        circle.setAttribute("cy", (y / 100) * height);
+        circle.setAttribute("r", "4");
+        circle.setAttribute("class", "wall-point");
+        svg.appendChild(circle);
+      }
+    }
+  }
+
+  async function saveWalls(walls) {
+    const response = await api(`/api/floors/${state.floorId}/walls`, {
+      method: "POST",
+      body: JSON.stringify({ walls }),
+    });
+    const floor = selectedFloor();
+    if (floor) floor.walls = response.walls || walls;
+    renderWallLayer();
+  }
+
+  function resetWallDrawing() {
+    state.drawMode = null;
+    state.drawPoints = [];
+    $("#setupWallFinish").hidden = true;
+    $("#setupWallCancel").hidden = true;
+    $("#setupStage").classList.remove("wall-drawing");
+    $("#setupWallLine").classList.remove("active");
+    $("#setupWallPolygon").classList.remove("active");
+    renderWallLayer();
+  }
+
+  async function finishWallDrawing() {
+    if (state.drawMode === "line") {
+      if (state.drawPoints.length < 2) { setStatus("Нужны две точки."); return; }
+      const [a, b] = state.drawPoints;
+      await saveWalls([...wallsList(), [a[0], a[1], b[0], b[1]]]);
+      resetWallDrawing();
+      setStatus("Стена-линия добавлена.");
+      return;
+    }
+    if (state.drawMode === "polygon") {
+      if (state.drawPoints.length < 3) { setStatus("Нужно минимум 3 точки."); return; }
+      const additions = [];
+      for (let i = 0; i < state.drawPoints.length; i += 1) {
+        const a = state.drawPoints[i];
+        const b = state.drawPoints[(i + 1) % state.drawPoints.length];
+        additions.push([a[0], a[1], b[0], b[1]]);
+      }
+      await saveWalls([...wallsList(), ...additions]);
+      resetWallDrawing();
+      setStatus("Стена-контур добавлена.");
+    }
+  }
+
   const geoStage = $("#setupGeoStage");
   geoStage.addEventListener("dragover", (event) => {
     if (!state.draggingCamera || !isTerritory()) return;
@@ -419,9 +504,60 @@
     }
   });
 
+  $("#setupWallLine").addEventListener("click", () => {
+    resetWallDrawing();
+    state.drawMode = "line";
+    $("#setupWallFinish").hidden = false;
+    $("#setupWallCancel").hidden = false;
+    $("#setupWallLine").classList.add("active");
+    $("#setupStage").classList.add("wall-drawing");
+    setStatus("Кликните начало и конец стены.");
+  });
+  $("#setupWallPolygon").addEventListener("click", () => {
+    resetWallDrawing();
+    state.drawMode = "polygon";
+    $("#setupWallFinish").hidden = false;
+    $("#setupWallCancel").hidden = false;
+    $("#setupWallPolygon").classList.add("active");
+    $("#setupStage").classList.add("wall-drawing");
+    setStatus("Кликайте точки контура, затем «Завершить».");
+  });
+  $("#setupWallFinish").addEventListener("click", finishWallDrawing);
+  $("#setupWallCancel").addEventListener("click", resetWallDrawing);
+  $("#setupWallsClear").addEventListener("click", async () => {
+    if (!state.floorId) return;
+    try {
+      await saveWalls([]);
+      setStatus("Стены очищены.");
+    } catch (error) { setStatus(`Ошибка: ${error.message}`); }
+  });
+  $("#setupStage").addEventListener("click", (event) => {
+    if (!state.drawMode || event.target.closest(".setup-marker")) return;
+    const point = stagePoint(event);
+    state.drawPoints.push([point.x, point.y]);
+    if (state.drawMode === "line" && state.drawPoints.length >= 2) {
+      finishWallDrawing();
+      return;
+    }
+    renderWallLayer();
+  });
+
+  $("#setupSaveMap").addEventListener("click", async () => {
+    if (!state.floorId) { setStatus("Выберите этаж."); return; }
+    if (state.drawMode) { setStatus("Сначала завершите рисование."); return; }
+    try {
+      await saveWalls(wallsList());
+      setStatus("Карта сохранена.");
+    } catch (error) {
+      setStatus(`Ошибка сохранения: ${error.message}`);
+    }
+  });
+
   $("#setupFloor").addEventListener("change", (event) => {
     state.floorId = Number(event.target.value);
+    resetWallDrawing();
     renderPlan();
+    renderWallLayer();
   });
 
   $("#geoSaveView").addEventListener("click", async () => {

@@ -11,6 +11,7 @@
       <p class="muted">Выберите объект и этаж, затем перетащите камеру на план.</p>
     </div>
     <div class="map-setup-actions">
+      <button type="button" class="primary" id="setupSaveMap">Сохранить карту</button>
       <button type="button" class="ghost" id="mapSetupDiscoverBtn">Поиск VHS-Viewer</button>
       <a class="button" href="{{ url_for('settings') }}">Планы и этажи</a>
       <a class="button" href="{{ url_for('index') }}">← На карту</a>
@@ -38,6 +39,13 @@
         </label>
         <span class="setup-status" id="setupStatus">Загрузка…</span>
         <a class="ghost setup-plan-link" id="setupPlanLink" href="{{ url_for('settings') }}" hidden>Загрузить план</a>
+        <div class="setup-wall-tools">
+          <button type="button" class="ghost" id="setupWallLine">Стена-линия</button>
+          <button type="button" class="ghost" id="setupWallPolygon">Стена-контур</button>
+          <button type="button" class="ghost" id="setupWallFinish" hidden>Завершить</button>
+          <button type="button" class="ghost" id="setupWallCancel" hidden>Отмена</button>
+          <button type="button" class="ghost" id="setupWallsClear">Очистить стены</button>
+        </div>
       </div>
       <div class="setup-geo-stage" id="setupGeoStage" hidden></div>
       <div class="geo-camera-tools" id="geoCameraTools" hidden>
@@ -53,6 +61,7 @@
           <span>Загрузите план в настройках, затем вернитесь сюда.</span>
         </div>
         <img id="setupPlan" alt="План этажа" hidden draggable="false">
+        <svg id="setupWallLayer" class="setup-wall-layer" aria-hidden="true"></svg>
         <div id="setupMarkers" class="setup-markers"></div>
       </div>
     </section>

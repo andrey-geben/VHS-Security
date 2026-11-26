@@ -45,4 +45,12 @@
 .setup-marker.dragging{opacity:.6}
 .setup-marker-label{position:absolute;left:50%;top:27px;transform:translateX(-50%);white-space:nowrap;background:#071018dd;border:1px solid #2a4152;border-radius:3px;padding:2px 5px;font-size:9px;color:var(--ink);pointer-events:none}
 .setup-drop-hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);background:#071018dd;border:1px solid #2a4152;border-radius:4px;padding:4px 8px;font-size:9px;color:var(--muted);pointer-events:none}
+.setup-wall-tools{display:flex;gap:4px;align-items:center;margin-left:auto;flex-wrap:wrap}
+.setup-wall-tools button{font-size:9px;padding:4px 7px;text-transform:none}
+.setup-wall-tools button.active{border-color:var(--cyan);color:var(--cyan);background:#12303d}
+.setup-wall-layer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+.setup-wall-layer .wall-line{stroke:#d3a85a;stroke-width:2;fill:none}
+.setup-wall-layer .wall-preview{stroke:var(--cyan);stroke-width:2;stroke-dasharray:5 4;fill:none}
+.setup-wall-layer .wall-point{fill:var(--cyan);stroke:#061018;stroke-width:2}
+.setup-stage.wall-drawing{cursor:crosshair}
 @media(max-width:900px){.map-setup-layout{grid-template-columns:1fr;min-height:0}.camera-tray{max-height:300px}.setup-stage{min-height:340px;max-height:none}}

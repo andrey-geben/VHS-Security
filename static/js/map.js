@@ -805,13 +805,13 @@ $("#planStage").addEventListener("pointercancel", () => {
   $("#planStage").classList.remove("panning");
 });
 
-$("#wallBtn").addEventListener("click", () => {
+$("#wallBtn")?.addEventListener("click", () => {
   state.wallMode = !state.wallMode;
   $("#wallBtn").classList.toggle("active", state.wallMode);
   $("#planStage").classList.toggle("wall-mode", state.wallMode);
   setStatus(state.wallMode ? "Режим стен: протащи мышью по плану, чтобы добавить стену." : "Режим стен выключен.");
 });
-$("#wallClear").addEventListener("click", async () => {
+$("#wallClear")?.addEventListener("click", async () => {
   if (!state.data) return;
   try {
     await api(`/api/floors/${state.floorId}/walls`, { method: "POST", body: JSON.stringify({ walls: [] }) });

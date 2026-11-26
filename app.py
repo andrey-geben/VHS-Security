@@ -1830,6 +1830,10 @@ def api_map_setup():
     )
     for floor in floors:
         floor["plan_url"] = url_for("plan_file", filename=floor["plan_filename"]) if floor["plan_filename"] else ""
+        try:
+            floor["walls"] = json.loads(floor.get("walls_json") or "[]")
+        except ValueError:
+            floor["walls"] = []
     cameras = rows(
         "SELECT c.*, f.name AS floor_name, f.building_id AS building_id, "
         "b.name AS building_name, z.name AS zone_name "

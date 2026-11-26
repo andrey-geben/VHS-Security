@@ -40,11 +40,45 @@ async function loadState(floorId) {
 
 function renderFloors() {
   const select = $("#floorSelect");
+  const buildingSelect = $("#buildingSelect");
+  const plans = $("#plansList");
+  const buildings = state.data.buildings || [];
+  const currentFloor = state.data.floors.find((f) => String(f.id) === String(state.floorId));
+  if (!state.buildingId && currentFloor) state.buildingId = currentFloor.building_id;
+  if (!buildings.some((b) => String(b.id) === String(state.buildingId)) && buildings.length) {
+    state.buildingId = buildings[0].id;
+  }
+  buildingSelect.innerHTML = buildings.map((b) =>
+    `<option value="${b.id}">${esc(b.name)}${b.kind === "territory" ? " · территория" : ""}</option>`
+  ).join("");
+  buildingSelect.value = String(state.buildingId || "");
+  buildingSelect.onchange = () => {
+    state.buildingId = Number(buildingSelect.value);
+    const first = state.data.floors.find((f) => String(f.building_id) === String(state.buildingId));
+    if (!first) { setStatus("На объекте нет планов."); return; }
+    state.selectedId = null;
+    resetMapView();
+    loadState(first.id);
+  };
+
   select.innerHTML = state.data.floors.map((f) =>
     `<option value="${f.id}">${esc(f.building_name)} · ${esc(f.name)}</option>`
   ).join("");
   select.value = String(state.floorId);
-  select.onchange = () => { state.selectedId = null; resetMapView(); loadState(select.value); };
+
+  const floors = state.data.floors.filter((f) => String(f.building_id) === String(state.buildingId));
+  plans.innerHTML = floors.length ? floors.map((floor) => `
+    <button type="button" class="plan-link${String(floor.id) === String(state.floorId) ? " active" : ""}" data-floor-id="${floor.id}">
+      <span>${esc(floor.name)}</span>
+      <small class="${floor.plan_filename ? "" : "no-plan"}">${floor.plan_filename ? "план" : "нет плана"}</small>
+    </button>`).join("") : '<p class="muted">Нет этажей.</p>';
+  plans.querySelectorAll("[data-floor-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.selectedId = null;
+      resetMapView();
+      loadState(Number(button.dataset.floorId));
+    });
+  });
 }
 
 function renderPlan() {

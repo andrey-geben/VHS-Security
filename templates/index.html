@@ -34,6 +34,15 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
 .alarm-type-checks label{display:flex;gap:4px;align-items:center}
 </style>
 <div class="workspace">
+  <aside class="plans-nav">
+    <div class="plans-nav-head">
+      <div class="kicker">Объект</div>
+      <select id="buildingSelect" aria-label="Объект"></select>
+    </div>
+    <div class="plans-nav-title">Планы на объекте</div>
+    <div class="plans-list" id="plansList"></div>
+    <select id="floorSelect" hidden aria-hidden="true"></select>
+  </aside>
   <section class="map-panel">
     <div class="toolbar">
       <div>
@@ -41,7 +50,6 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
         <h1>Карта объекта</h1>
       </div>
       <div class="toolbar-actions">
-        <select id="floorSelect" aria-label="Этаж"></select>
         <span class="guard-summary" id="guardSummary"></span>
         <div class="map-zoom" title="Масштаб карты">
           <button type="button" id="zoomOut" aria-label="Уменьшить">−</button>

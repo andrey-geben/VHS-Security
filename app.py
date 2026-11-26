@@ -1138,13 +1138,14 @@ def api_state():
     if not floor:
         return jsonify({"error": "floor not found"}), 404
     floors = rows(
-        "SELECT f.id, f.name, f.level, b.name AS building_name "
+        "SELECT f.id, f.name, f.level, f.building_id, f.plan_filename, b.name AS building_name "
         "FROM floors f JOIN buildings b ON b.id=f.building_id "
         "ORDER BY b.id, f.level, f.id"
     )
     return jsonify({
         "floor": floor_payload(floor, include_events=True),
         "floors": floors,
+        "buildings": rows("SELECT id, name, kind FROM buildings ORDER BY name"),
         "holidays": rows("SELECT * FROM holidays ORDER BY date"),
         "streamer_url": get_streamer_url(),
         "viewer_url": get_viewer_url(),

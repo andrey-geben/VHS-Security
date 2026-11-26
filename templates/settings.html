@@ -205,10 +205,7 @@
       {% if request.args.get('imported') is not none %}<p class="muted">Импорт завершён: добавлено {{ request.args.get('imported') }}.</p>{% endif %}
     </section>
     <section class="card wide">
-      <div class="card-head">
-        <h2>Камеры</h2>
-        <button type="button" class="ghost" id="settingsDiscoverBtn">Поиск VHS-Viewer</button>
-      </div>
+      <h2>Камеры</h2>
       <p class="muted">Камеры и потоки импортируются из VHS-Viewer. После импорта перетащите их на плане. Камеры, которых больше нет в Viewer, удаляются при следующей синхронизации.</p>
       {% for c in cameras %}<div class="row"><b>{{ c.name }}</b><span class="muted">{{ c.camera_ref }} · {{ c.floor_name }} · зона: {{ c.zone_name or 'не назначена' }}</span>
         <form method="post" action="{{ url_for('assign_camera_zone', camera_id=c.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="zone_id">{% for z in zones if z.floor_id == c.floor_id %}<option value="{{ z.id }}" {% if z.id == c.zone_id %}selected{% endif %}>{{ z.name }}</option>{% endfor %}</select><button class="ghost" type="submit">Привязать к зоне</button></form>
@@ -217,20 +214,6 @@
   </div>
 </div>
 
-<div class="discovery-overlay" id="viewerDiscovery" hidden>
-  <div class="discovery-card">
-    <div class="discovery-head">
-      <div><div class="kicker">Интеграция</div><h2>Поиск VHS-Viewer</h2></div>
-      <button type="button" class="ce-close" id="viewerDiscoveryClose">×</button>
-    </div>
-    <p class="muted">Поиск выполняется по локальной сети на порту 8200. После выбора Viewer камеры синхронизируются из него.</p>
-    <div class="discovery-search">
-      <input id="viewerDiscoverySubnet" placeholder="Подсеть, например 192.168.1.0/24">
-      <button type="button" class="primary" id="viewerDiscoveryRun">Искать</button>
-    </div>
-    <div class="discovery-list" id="viewerDiscoveryList"><p class="muted">Нажмите «Искать».</p></div>
-  </div>
-</div>
 {% endblock %}
 {% block scripts %}
 <script>

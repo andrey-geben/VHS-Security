@@ -11,6 +11,7 @@
       <p class="muted">Выберите объект и этаж, затем перетащите камеру на план.</p>
     </div>
     <div class="map-setup-actions">
+      <button type="button" class="ghost" id="mapSetupDiscoverBtn">Поиск VHS-Viewer</button>
       <a class="button" href="{{ url_for('settings') }}">Планы и этажи</a>
       <a class="button" href="{{ url_for('index') }}">← На карту</a>
     </div>
@@ -57,8 +58,85 @@
     </section>
   </div>
 </div>
+
+<div class="discovery-overlay" id="mapViewerDiscovery" hidden>
+  <div class="discovery-card">
+    <div class="discovery-head">
+      <div><div class="kicker">Интеграция</div><h2>Поиск VHS-Viewer</h2></div>
+      <button type="button" class="ce-close" id="mapViewerDiscoveryClose">×</button>
+    </div>
+    <p class="muted">Поиск по локальной сети на порту 8200. После выбора Viewer камеры синхронизируются из него.</p>
+    <div class="discovery-search">
+      <input id="mapViewerDiscoverySubnet" placeholder="Подсеть, например 192.168.1.0/24">
+      <button type="button" class="primary" id="mapViewerDiscoveryRun">Искать</button>
+    </div>
+    <div class="discovery-list" id="mapViewerDiscoveryList"><p class="muted">Нажмите «Искать».</p></div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="{{ url_for('static', filename='js/map-setup.js') }}"></script>
+<script>
+const mapViewerDiscovery = document.getElementById("mapViewerDiscovery");
+const mapViewerList = document.getElementById("mapViewerDiscoveryList");
+function closeMapViewerDiscovery() { mapViewerDiscovery.hidden = true; }
+async function runMapViewerDiscovery() {
+  mapViewerList.innerHTML = '<p class="muted">Сканирую локальную сеть…</p>';
+  const subnet = document.getElementById("mapViewerDiscoverySubnet")?.value.trim() || "";
+  try {
+    const response = await fetch("/api/discovery/viewers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": window.CSRF_TOKEN },
+      body: JSON.stringify({ subnet }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const viewers = data.viewers || [];
+    if (!viewers.length) {
+      mapViewerList.innerHTML = `<p class="muted">Viewer не найден в подсети ${data.network || ""}.</p>`;
+      return;
+    }
+    mapViewerList.innerHTML = viewers.map((viewer) => `
+      <div class="discovery-item${viewer.url === data.current ? " current" : ""}">
+        <div><b>${viewer.url}</b><br><span class="muted">VHS-Viewer ${viewer.version ? `v${viewer.version}` : ""}${viewer.url === data.current ? " · текущий" : ""}</span></div>
+        <button type="button" class="ghost" data-map-viewer-url="${viewer.url}">${viewer.url === data.current ? "Выбран" : "Использовать"}</button>
+      </div>`).join("");
+  } catch (error) {
+    mapViewerList.innerHTML = `<p class="muted">Ошибка поиска: ${String(error.message || error)}</p>`;
+  }
+}
+async function useMapViewer(url) {
+  mapViewerList.innerHTML = '<p class="muted">Сохраняю Viewer и синхронизирую камеры…</p>';
+  try {
+    const save = await fetch("/api/discovery/use-viewer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": window.CSRF_TOKEN },
+      body: JSON.stringify({ url }),
+    });
+    if (!save.ok) throw new Error((await save.json()).error || `HTTP ${save.status}`);
+    await fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": window.CSRF_TOKEN },
+      body: JSON.stringify({}),
+    });
+    window.location.reload();
+  } catch (error) {
+    mapViewerList.innerHTML = `<p class="muted">Не удалось выбрать Viewer: ${String(error.message || error)}</p>`;
+  }
+}
+document.getElementById("mapSetupDiscoverBtn")?.addEventListener("click", () => {
+  mapViewerDiscovery.hidden = false;
+  runMapViewerDiscovery();
+});
+document.getElementById("mapViewerDiscoveryClose")?.addEventListener("click", closeMapViewerDiscovery);
+document.getElementById("mapViewerDiscoveryRun")?.addEventListener("click", runMapViewerDiscovery);
+mapViewerDiscovery?.addEventListener("click", (event) => {
+  if (event.target === mapViewerDiscovery) closeMapViewerDiscovery();
+});
+mapViewerList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-map-viewer-url]");
+  if (button) useMapViewer(button.dataset.mapViewerUrl);
+});
+</script>
 {% endblock %}

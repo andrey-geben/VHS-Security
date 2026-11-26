@@ -94,11 +94,15 @@
     }
     root.innerHTML = [...groups.entries()].map(([title, items]) => `
       <div class="tray-group">${esc(title)} · ${items.length}</div>
-      ${items.map((camera) => `
-        <div class="camera-card" draggable="true" data-camera-id="${camera.id}" title="Перетащите на план">
-          <span class="cam-ico">◉</span>
-          <span><b>${esc(camera.name)}</b><small>${esc(camera.camera_ref)}${camera.zone_name ? ` · ${esc(camera.zone_name)}` : ""}</small></span>
-        </div>`).join("")}
+      ${items.map((camera) => {
+        const locked = Number(camera.placed) === 1;
+        return `
+        <div class="camera-card${locked ? " locked" : ""}" draggable="${locked ? "false" : "true"}" data-camera-id="${camera.id}" title="${locked ? "Камера уже установлена" : "Перетащите на план"}">
+          <span class="cam-ico">${locked ? "●" : "◉"}</span>
+          <span><b>${esc(camera.name)}</b><small>${esc(camera.camera_ref)}${camera.zone_name ? ` · ${esc(camera.zone_name)}` : ""}${locked ? " · установлена" : " · не установлена"}</small></span>
+          ${locked ? `<button type="button" class="camera-unplace" data-unplace="${camera.id}">Снять</button>` : ""}
+        </div>`;
+      }).join("")}
     `).join("");
   }
 
@@ -348,7 +352,7 @@
 
   $("#setupCameras").addEventListener("dragstart", (event) => {
     const card = event.target.closest(".camera-card");
-    if (!card) return;
+    if (!card || card.classList.contains("locked")) return;
     state.draggingCamera = card.dataset.cameraId;
     card.classList.add("dragging");
     event.dataTransfer.setData("text/plain", card.dataset.cameraId);
@@ -358,6 +362,20 @@
     event.target.closest(".camera-card")?.classList.remove("dragging");
     state.draggingCamera = null;
     $("#setupStage").classList.remove("drop-target");
+  });
+  $("#setupCameras").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-unplace]");
+    if (!button) return;
+    try {
+      await api(`/api/cameras/${button.dataset.unplace}/unplace`, { method: "POST" });
+      const camera = currentCamera(button.dataset.unplace);
+      if (camera) camera.placed = 0;
+      renderCameras();
+      renderMarkers();
+      setStatus("Камера снята с карты.");
+    } catch (error) {
+      setStatus(`Ошибка: ${error.message}`);
+    }
   });
   const stage = $("#setupStage");
   stage.addEventListener("dragover", (event) => {

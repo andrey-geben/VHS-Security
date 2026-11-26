@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS floors (
 CREATE TABLE IF NOT EXISTS cameras (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     camera_ref TEXT NOT NULL,
+    placed INTEGER NOT NULL DEFAULT 0,
     source_url TEXT NOT NULL DEFAULT '',
     name TEXT NOT NULL,
     floor_id INTEGER NOT NULL REFERENCES floors(id) ON DELETE CASCADE,
@@ -274,6 +275,9 @@ def init_db():
         db.execute("ALTER TABLE cameras ADD COLUMN alarm_types_json TEXT NOT NULL DEFAULT '[\"person\",\"vehicle\",\"plate\"]'")
     if "zone_id" not in columns:
         db.execute("ALTER TABLE cameras ADD COLUMN zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL")
+    if "placed" not in columns:
+        db.execute("ALTER TABLE cameras ADD COLUMN placed INTEGER NOT NULL DEFAULT 0")
+        db.execute("UPDATE cameras SET placed=1")
     for geo_column, definition in (
         ("geo_lat", "REAL"),
         ("geo_lon", "REAL"),
@@ -438,7 +442,7 @@ def _camera_for_ref(camera_ref: str, name: str, source_url: str, floor_id: int):
         if cam:
             return cam
     get_db().execute(
-        "INSERT INTO cameras (camera_ref, source_url, name, floor_id) VALUES (?, ?, ?, ?)",
+        "INSERT INTO cameras (camera_ref, source_url, name, floor_id, placed) VALUES (?, ?, ?, ?, 0)",
         (camera_ref, source_url, name or camera_ref, floor_id),
     )
     get_db().commit()
@@ -665,7 +669,7 @@ def floor_payload(floor, include_events=False):
         result["walls"] = []
     result["plan_url"] = url_for("plan_file", filename=floor["plan_filename"]) if floor["plan_filename"] else ""
     camera_rows = rows(
-        "SELECT * FROM cameras WHERE floor_id=? ORDER BY name", (floor["id"],)
+        "SELECT * FROM cameras WHERE floor_id=? AND placed=1 ORDER BY name", (floor["id"],)
     )
     for camera in camera_rows:
         camera["effective_armed"] = _effective_armed(camera)
@@ -874,6 +878,9 @@ def merge_duplicate_cameras():
             continue
         # Предпочитаем camera_id без stream-суффикса; иначе — более новую запись.
         keeper = next(
+            (camera for camera in cams if camera["camera_ref"] == base_ref and camera.get("placed")),
+            None,
+        ) or next((camera for camera in cams if camera.get("placed")), None) or next(
             (camera for camera in cams if camera["camera_ref"] == base_ref),
             cams[-1],
         )
@@ -1412,7 +1419,7 @@ def api_position(camera_id: int):
     except (TypeError, ValueError):
         return jsonify({"error": "invalid position"}), 400
     get_db().execute(
-        "UPDATE cameras SET x=?, y=?, angle=?, fov=?, view_range=? WHERE id=?",
+        "UPDATE cameras SET x=?, y=?, angle=?, fov=?, view_range=?, placed=1 WHERE id=?",
         (x, y, angle, fov, view_range, camera_id),
     )
     get_db().commit()
@@ -1428,7 +1435,9 @@ def api_add_camera():
     floor_id = int(data.get("floor_id") or _default_floor_id())
     if not ref:
         return jsonify({"error": "camera_ref required"}), 400
-    _camera_for_ref(ref, name, data.get("source_url") or get_streamer_url() or "manual", floor_id)
+    camera = _camera_for_ref(ref, name, data.get("source_url") or get_streamer_url() or "manual", floor_id)
+    get_db().execute("UPDATE cameras SET placed=1 WHERE id=?", (camera["id"],))
+    get_db().commit()
     return jsonify({"ok": True})
 
 
@@ -1922,6 +1931,8 @@ def api_place_camera(camera_id: int):
     camera = one("SELECT * FROM cameras WHERE id=?", (camera_id,))
     if not floor or not camera:
         return jsonify({"error": "камера или этаж не найдены"}), 404
+    if camera.get("placed") and str(camera.get("floor_id")) != str(floor_id):
+        return jsonify({"error": "Камера уже установлена на другом этаже. Сначала снимите её с карты."}), 409
     zone_id = data.get("zone_id")
     warning = ""
     if zone_id:
@@ -1941,11 +1952,22 @@ def api_place_camera(camera_id: int):
             if len(points) >= 3 and not _point_in_polygon(x, y, points):
                 warning = f"Камера вне контура зоны «{zone['name']}»."
     get_db().execute(
-        "UPDATE cameras SET floor_id=?, x=?, y=?, zone_id=? WHERE id=?",
+        "UPDATE cameras SET floor_id=?, x=?, y=?, zone_id=?, placed=1 WHERE id=?",
         (floor_id, x, y, zone_id, camera_id),
     )
     get_db().commit()
     return jsonify({"ok": True, "camera_id": camera_id, "floor_id": floor_id, "x": x, "y": y, "zone_id": zone_id, "warning": warning})
+
+
+@app.post("/api/cameras/<int:camera_id>/unplace")
+@admin_required
+def api_unplace_camera(camera_id: int):
+    camera = one("SELECT * FROM cameras WHERE id=?", (camera_id,))
+    if not camera:
+        return jsonify({"error": "камера не найдена"}), 404
+    get_db().execute("UPDATE cameras SET placed=0 WHERE id=?", (camera_id,))
+    get_db().commit()
+    return jsonify({"ok": True})
 
 
 @app.post("/api/cameras/<int:camera_id>/place-geo")
@@ -2044,7 +2066,7 @@ def api_mosaic():
         "(SELECT COUNT(*) FROM alarms a WHERE a.camera_id=c.id AND a.status='active') AS active_alarms "
         "FROM cameras c JOIN floors f ON f.id=c.floor_id JOIN buildings b ON b.id=f.building_id "
         "LEFT JOIN zones z ON z.id=c.zone_id "
-        "WHERE c.enabled=1 ORDER BY b.name, f.level, f.name, c.name"
+        "WHERE c.enabled=1 AND c.placed=1 ORDER BY b.name, f.level, f.name, c.name"
     )
     cameras = []
     for camera in rows_data:

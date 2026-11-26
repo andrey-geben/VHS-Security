@@ -16,6 +16,9 @@
 .camera-card{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #2b4354;border-radius:6px;background:#0d1b25;cursor:grab;user-select:none}
 .camera-card:hover{border-color:var(--cyan)}
 .camera-card.dragging{opacity:.45}
+.camera-card.locked{opacity:.62;cursor:not-allowed;border-style:dashed}
+.camera-card.locked:hover{border-color:#2b4354}
+.camera-unplace{margin-left:auto;padding:3px 6px!important;font-size:8px!important;text-transform:none;border-color:#563039!important;color:#ff9aa2!important;align-self:center}
 .camera-card .cam-ico{width:23px;height:23px;border-radius:5px;background:#173442;display:flex;align-items:center;justify-content:center;color:var(--cyan);font-size:11px;flex:0 0 auto}
 .camera-card b{display:block;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:205px}
 .camera-card small{display:block;font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:205px}

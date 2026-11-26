@@ -113,6 +113,10 @@ class SecurityTests(unittest.TestCase):
         result = response.get_json()
         self.assertEqual(result["cameras"], 1)
         self.assertEqual(result["streamer_events"], 0)
+        with security.app.app_context():
+            db = security.get_db()
+            db.execute("UPDATE cameras SET placed=1")
+            db.commit()
         state = self.client.get("/api/state").get_json()
         self.assertEqual(state["floor"]["cameras"][0]["camera_ref"], "cam-01")
         self.assertEqual(state["floor"]["events"], [])

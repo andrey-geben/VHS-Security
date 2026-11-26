@@ -932,12 +932,17 @@ def sync_viewer_state(floor_id: int):
         stream_list = item.get("streams") or []
         stream_url = str(stream_list[0].get("url") or "") if stream_list else ""
         get_db().execute(
-            "UPDATE cameras SET name=?, source_url=?, stream_url=? WHERE id=?",
-            (name, get_viewer_url(), stream_url, cam["id"]),
+            "UPDATE cameras SET name=?, source_url=?, stream_url=? WHERE camera_ref=? OR name=?",
+            (name, get_viewer_url(), stream_url, ref, name),
         )
         if stream_url:
             streams += 1
         refs.append(ref)
+        refs.extend(
+            row["camera_ref"] for row in get_db().execute(
+                "SELECT camera_ref FROM cameras WHERE name=?", (name,)
+            ).fetchall()
+        )
     removed = 0
     db = get_db()
     if refs:
@@ -1109,6 +1114,7 @@ def api_sync():
 @app.route("/api/state")
 @login_required
 def api_state():
+    ensure_viewer_stream_urls()
     floor_id = request.args.get("floor_id", type=int) or _default_floor_id()
     floor = one(
         "SELECT f.*, b.name AS building_name FROM floors f "
@@ -1761,6 +1767,35 @@ def about():
     )
 
 
+def ensure_viewer_stream_urls():
+    """Обновить пустые stream_url из Viewer без ручной синхронизации."""
+    db = get_db()
+    empty = db.execute(
+        "SELECT COUNT(*) AS n FROM cameras WHERE stream_url IS NULL OR stream_url=''"
+    ).fetchone()["n"]
+    if not empty or not get_viewer_url() or not INGEST_TOKEN:
+        return
+    try:
+        response = requests.get(
+            f"{get_viewer_url()}/api/integration/state",
+            headers={"X-Ingest-Token": INGEST_TOKEN}, timeout=8,
+        )
+        response.raise_for_status()
+        for item in response.json().get("cameras", []):
+            ref = str(item.get("id") or "").strip()
+            streams = item.get("streams") or []
+            url = str(streams[0].get("url") or "") if streams else ""
+            if ref and url:
+                name = str(item.get("name") or "")
+                db.execute(
+                    "UPDATE cameras SET stream_url=? WHERE camera_ref=? OR name=?",
+                    (url, ref, name),
+                )
+        db.commit()
+    except Exception:
+        pass
+
+
 @app.route("/favicon.ico")
 def favicon():
     return send_from_directory(app.static_folder, "favicon.ico", mimetype="image/x-icon")
@@ -1906,6 +1941,7 @@ def api_whep():
 @app.get("/api/mosaic")
 @login_required
 def api_mosaic():
+    ensure_viewer_stream_urls()
     rows_data = rows(
         "SELECT c.*, f.name AS floor_name, f.level AS floor_level, "
         "f.building_id AS building_id, b.name AS building_name, "

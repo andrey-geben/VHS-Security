@@ -23,6 +23,8 @@
 .holiday-delete{padding:3px 7px!important;font-size:9px!important;border-color:#563039!important;color:#ff9aa2!important}
 .holiday-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
 .holiday-actions form{margin:0!important;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.card-head h2{margin:0}
 </style>
 <div class="settings">
   <div class="toolbar"><div><div class="kicker">Конфигурация</div><h1>Объект и камеры</h1></div><a class="button" href="{{ url_for('index') }}">← На карту</a></div>
@@ -203,12 +205,30 @@
       {% if request.args.get('imported') is not none %}<p class="muted">Импорт завершён: добавлено {{ request.args.get('imported') }}.</p>{% endif %}
     </section>
     <section class="card wide">
-      <h2>Камеры</h2>
+      <div class="card-head">
+        <h2>Камеры</h2>
+        <button type="button" class="ghost" id="settingsDiscoverBtn">Поиск VHS-Viewer</button>
+      </div>
       <p class="muted">Камеры и потоки импортируются из VHS-Viewer. После импорта перетащите их на плане. Камеры, которых больше нет в Viewer, удаляются при следующей синхронизации.</p>
       {% for c in cameras %}<div class="row"><b>{{ c.name }}</b><span class="muted">{{ c.camera_ref }} · {{ c.floor_name }} · зона: {{ c.zone_name or 'не назначена' }}</span>
         <form method="post" action="{{ url_for('assign_camera_zone', camera_id=c.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="zone_id">{% for z in zones if z.floor_id == c.floor_id %}<option value="{{ z.id }}" {% if z.id == c.zone_id %}selected{% endif %}>{{ z.name }}</option>{% endfor %}</select><button class="ghost" type="submit">Привязать к зоне</button></form>
       </div>{% else %}<p class="muted">Камер нет.</p>{% endfor %}
     </section>
+  </div>
+</div>
+
+<div class="discovery-overlay" id="viewerDiscovery" hidden>
+  <div class="discovery-card">
+    <div class="discovery-head">
+      <div><div class="kicker">Интеграция</div><h2>Поиск VHS-Viewer</h2></div>
+      <button type="button" class="ce-close" id="viewerDiscoveryClose">×</button>
+    </div>
+    <p class="muted">Поиск выполняется по локальной сети на порту 8200. После выбора Viewer камеры синхронизируются из него.</p>
+    <div class="discovery-search">
+      <input id="viewerDiscoverySubnet" placeholder="Подсеть, например 192.168.1.0/24">
+      <button type="button" class="primary" id="viewerDiscoveryRun">Искать</button>
+    </div>
+    <div class="discovery-list" id="viewerDiscoveryList"><p class="muted">Нажмите «Искать».</p></div>
   </div>
 </div>
 {% endblock %}
@@ -221,6 +241,72 @@ document.getElementById("gsmStatusBtn")?.addEventListener("click", async () => {
     const r = await fetch("/api/gsm/status", { headers: { "X-CSRF-Token": window.CSRF_TOKEN } });
     out.textContent = JSON.stringify(await r.json(), null, 2);
   } catch (e) { out.textContent = String(e); }
+});
+
+const viewerDiscovery = document.getElementById("viewerDiscovery");
+const viewerList = document.getElementById("viewerDiscoveryList");
+
+function closeViewerDiscovery() { viewerDiscovery.hidden = true; }
+
+async function runViewerDiscovery() {
+  if (!viewerList) return;
+  viewerList.innerHTML = '<p class="muted">Сканирую локальную сеть…</p>';
+  const subnet = document.getElementById("viewerDiscoverySubnet")?.value.trim() || "";
+  try {
+    const response = await fetch("/api/discovery/viewers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": window.CSRF_TOKEN },
+      body: JSON.stringify({ subnet }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const viewers = data.viewers || [];
+    if (!viewers.length) {
+      viewerList.innerHTML = `<p class="muted">Viewer не найден в подсети ${data.network || ""}.</p>`;
+      return;
+    }
+    viewerList.innerHTML = viewers.map((viewer) => `
+      <div class="discovery-item${viewer.url === data.current ? " current" : ""}">
+        <div><b>${viewer.url}</b><br><span class="muted">VHS-Viewer ${viewer.version ? `v${viewer.version}` : ""}${viewer.url === data.current ? " · текущий" : ""}</span></div>
+        <button type="button" class="ghost" data-viewer-url="${viewer.url}">${viewer.url === data.current ? "Выбран" : "Использовать"}</button>
+      </div>`).join("");
+  } catch (error) {
+    viewerList.innerHTML = `<p class="muted">Ошибка поиска: ${String(error.message || error)}</p>`;
+  }
+}
+
+async function useDiscoveredViewer(url) {
+  viewerList.innerHTML = '<p class="muted">Сохраняю Viewer и синхронизирую камеры…</p>';
+  try {
+    const save = await fetch("/api/discovery/use-viewer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": window.CSRF_TOKEN },
+      body: JSON.stringify({ url }),
+    });
+    if (!save.ok) throw new Error((await save.json()).error || `HTTP ${save.status}`);
+    await fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": window.CSRF_TOKEN },
+      body: JSON.stringify({}),
+    });
+    window.location.reload();
+  } catch (error) {
+    viewerList.innerHTML = `<p class="muted">Не удалось выбрать Viewer: ${String(error.message || error)}</p>`;
+  }
+}
+
+document.getElementById("settingsDiscoverBtn")?.addEventListener("click", () => {
+  viewerDiscovery.hidden = false;
+  runViewerDiscovery();
+});
+document.getElementById("viewerDiscoveryClose")?.addEventListener("click", closeViewerDiscovery);
+document.getElementById("viewerDiscoveryRun")?.addEventListener("click", runViewerDiscovery);
+viewerDiscovery?.addEventListener("click", (event) => {
+  if (event.target === viewerDiscovery) closeViewerDiscovery();
+});
+viewerList?.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-viewer-url]");
+  if (button) useDiscoveredViewer(button.dataset.viewerUrl);
 });
 </script>
 {% endblock %}

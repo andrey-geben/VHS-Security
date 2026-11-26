@@ -165,4 +165,4 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="{{ url_for('static', filename='js/whep-player.js') }}"></script><script src="{{ url_for('static', filename='js/map.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>window.VHS_GEO_CONFIG = { provider: {{ geo_provider|tojson }}, yandexKey: {{ yandex_key|tojson }} };</script><script src="{{ url_for('static', filename='js/whep-player.js') }}"></script><script src="{{ url_for('static', filename='js/map.js') }}"></script>{% endblock %}

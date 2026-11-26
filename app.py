@@ -1871,7 +1871,11 @@ def favicon():
 @app.route("/")
 @login_required
 def index():
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        geo_provider=get_app_setting("geo_map_provider", GEO_MAP_PROVIDER),
+        yandex_key=get_app_setting("yandex_maps_api_key", YANDEX_MAPS_API_KEY),
+    )
 
 
 @app.route("/map-setup")

@@ -92,8 +92,13 @@ function renderMainGeo() {
   const lon = Number(floor.building_center_lon) || 37.618423;
   if (!state.mainGeoMap) {
     state.mainGeoMap = window.L.map(container).setView([lat, lon], Number(floor.building_geo_zoom) || 16);
-    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19, attribution: "© OpenStreetMap",
+    const geoConfig = window.VHS_GEO_CONFIG || {};
+    const useYandex = geoConfig.provider === "yandex" && geoConfig.yandexKey;
+    const tileUrl = useYandex
+      ? `https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.20&x={x}&y={y}&z={z}&scale=1&lang=ru_RU&apikey=${encodeURIComponent(geoConfig.yandexKey)}`
+      : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+    window.L.tileLayer(tileUrl, {
+      maxZoom: 19, attribution: useYandex ? "© Яндекс" : "© OpenStreetMap",
     }).addTo(state.mainGeoMap);
   } else {
     state.mainGeoMap.setView([lat, lon], Number(floor.building_geo_zoom) || 16);

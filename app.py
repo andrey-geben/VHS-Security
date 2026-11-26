@@ -79,6 +79,8 @@ AUTH_PASSWORD = os.environ.get("VHS_SECURITY_PASSWORD", "change-me")
 STREAMER_URL = os.environ.get("STREAMER_URL", "").rstrip("/")
 STREAMER_TOKEN = os.environ.get("STREAMER_API_TOKEN", "")
 VIEWER_URL_DEFAULT = os.environ.get("VIEWER_URL", "").rstrip("/")
+GEO_MAP_PROVIDER = os.environ.get("GEO_MAP_PROVIDER", "leaflet").strip().lower()
+YANDEX_MAPS_API_KEY = os.environ.get("YANDEX_MAPS_API_KEY", "").strip()
 VIEWER_EVENTS_PATH = Path(os.environ.get("VIEWER_EVENTS_PATH", "")) if os.environ.get("VIEWER_EVENTS_PATH") else None
 INGEST_TOKEN = os.environ.get("VHS_SECURITY_INGEST_TOKEN", "")
 SSO_SECRET = os.environ.get("VHS_SSO_SECRET", "")
@@ -1835,7 +1837,11 @@ def index():
 @app.route("/map-setup")
 @admin_required
 def map_setup_page():
-    return render_template("map_setup.html")
+    return render_template(
+        "map_setup.html",
+        geo_provider=GEO_MAP_PROVIDER,
+        yandex_key=YANDEX_MAPS_API_KEY,
+    )
 
 
 @app.get("/api/map-setup")

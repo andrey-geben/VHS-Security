@@ -155,9 +155,14 @@
         [Number(building?.center_lat) || 55.751244, Number(building?.center_lon) || 37.618423],
         Number(building?.geo_zoom) || 16,
       );
-      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      const geoConfig = window.VHS_GEO_CONFIG || {};
+      const useYandex = geoConfig.provider === "yandex" && geoConfig.yandexKey;
+      const tileUrl = useYandex
+        ? `https://core-renderer-tiles.maps.yandex.net/tiles?l=map&v=21.06.20&x={x}&y={y}&z={z}&scale=1&lang=ru_RU&apikey=${encodeURIComponent(geoConfig.yandexKey)}`
+        : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+      window.L.tileLayer(tileUrl, {
         maxZoom: 19,
-        attribution: "© OpenStreetMap",
+        attribution: useYandex ? "© Яндекс" : "© OpenStreetMap",
       }).addTo(state.geoMap);
     } else {
       state.geoMap.setView(

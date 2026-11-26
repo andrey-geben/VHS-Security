@@ -14,6 +14,7 @@ import socket
 import concurrent.futures
 import json
 import os
+import re
 import secrets
 import sqlite3
 import sys
@@ -847,31 +848,36 @@ def sync_viewer_events(floor_id: int):
 
 
 def merge_duplicate_cameras():
-    """Объединить камеры Streamer и Viewer с одинаковым именем.
+    """Объединить camera_id и stream_id одной камеры Viewer.
 
-    Viewer часто использует stream_id (usb_..._s1), а Streamer — camera_id
-    (usb_...). Это одна и та же камера; оставляем запись Streamer.
+    Viewer отдаёт камеру как usb_..., а событие/старый импорт мог сохранить
+    stream_id usb_..._s1. Это одна камера; оставляем запись без суффикса,
+    переносим на неё события и тревоги.
     """
-    groups = rows(
-        "SELECT name, floor_id, COUNT(*) AS cnt FROM cameras "
-        "GROUP BY name, floor_id HAVING cnt > 1"
-    )
-    base = get_streamer_url()
+    cameras = rows("SELECT * FROM cameras ORDER BY id")
+    groups = {}
+    for camera in cameras:
+        base_ref = re.sub(r"_s\d+$", "", str(camera.get("camera_ref") or ""))
+        groups.setdefault(base_ref, []).append(camera)
     removed = 0
-    for group in groups:
-        cams = rows(
-            "SELECT * FROM cameras WHERE name=? AND floor_id=? ORDER BY id",
-            (group["name"], group["floor_id"]),
+    db = get_db()
+    for base_ref, cams in groups.items():
+        if len(cams) < 2:
+            continue
+        # Предпочитаем camera_id без stream-суффикса; иначе — более новую запись.
+        keeper = next(
+            (camera for camera in cams if camera["camera_ref"] == base_ref),
+            cams[-1],
         )
-        keeper = next((c for c in cams if c.get("stream_url")), cams[0])
-        for cam in cams:
-            if cam["id"] == keeper["id"]:
+        for camera in cams:
+            if camera["id"] == keeper["id"]:
                 continue
-            get_db().execute("UPDATE events SET camera_id=? WHERE camera_id=?", (keeper["id"], cam["id"]))
-            get_db().execute("DELETE FROM cameras WHERE id=?", (cam["id"],))
+            db.execute("UPDATE events SET camera_id=? WHERE camera_id=?", (keeper["id"], camera["id"]))
+            db.execute("UPDATE alarms SET camera_id=? WHERE camera_id=?", (keeper["id"], camera["id"]))
+            db.execute("DELETE FROM cameras WHERE id=?", (camera["id"],))
             removed += 1
     if removed:
-        get_db().commit()
+        db.commit()
     return removed
 
 

@@ -50,6 +50,13 @@
         </div>
       </div>
       <div class="setup-geo-stage" id="setupGeoStage" hidden></div>
+      <div class="geo-building-tools" id="geoBuildingTools" hidden>
+        <button type="button" class="ghost" id="geoFootprintDraw">Контур здания</button>
+        <button type="button" class="ghost" id="geoFootprintFinish" hidden>Завершить</button>
+        <button type="button" class="ghost" id="geoFootprintCancel" hidden>Отмена</button>
+        <span class="muted">Кликайте по карте контур здания, затем «Завершить».</span>
+        <div class="geo-footprint-list" id="geoFootprintList"></div>
+      </div>
       <div class="geo-camera-tools" id="geoCameraTools" hidden>
         <label>Азимут, ° <input type="number" id="geoAzimuth" min="0" max="360" step="1"></label>
         <label>Сектор, ° <input type="number" id="geoFov" min="5" max="180" step="1"></label>
@@ -87,6 +94,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf@7/turf.min.js"></script>
 <script>window.VHS_GEO_CONFIG = { provider: {{ geo_provider|tojson }}, yandexKey: {{ yandex_key|tojson }} };</script>
 <script src="{{ url_for('static', filename='js/map-setup.js') }}"></script>
 <script>

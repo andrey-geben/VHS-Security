@@ -1,5 +1,5 @@
 (function () {
-  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null, drawMode: null, drawPoints: [], zones: [] };
+  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null, drawMode: null, drawPoints: [], zones: [], footprints: [], footprintMode: false, footprintPoints: [] };
   const $ = (selector) => document.querySelector(selector);
   const CSRF = window.CSRF_TOKEN;
 
@@ -164,6 +164,11 @@
         maxZoom: 19,
         attribution: useYandex ? "© Яндекс" : "© OpenStreetMap",
       }).addTo(state.geoMap);
+      state.geoMap.on("click", (event) => {
+        if (!state.footprintMode) return;
+        state.footprintPoints.push([event.latlng.lat, event.latlng.lng]);
+        window.L.circle(event.latlng, { radius: 4, color: "#c58b4b", fillOpacity: 1 }).addTo(state.geoLayer || state.geoMap);
+      });
     } else {
       state.geoMap.setView(
         [Number(building?.center_lat) || 55.751244, Number(building?.center_lon) || 37.618423],
@@ -183,20 +188,73 @@
     $("#geoRange").value = Math.round(Number(camera.geo_range_m) || 80);
   }
 
+  function territoryFootprints() {
+    return (state.footprints || []).filter(
+      (item) => String(item.territory_id) === String(state.buildingId)
+    );
+  }
+
+  function renderFootprintList() {
+    const list = $("#geoFootprintList");
+    if (!list) return;
+    list.innerHTML = territoryFootprints().map((item) =>
+      `<span class="geo-footprint-item">${esc(item.name)} <button type="button" data-delete-footprint="${item.id}" title="Удалить">×</button></span>`
+    ).join("");
+  }
+
+  function addSectorLayer(camera) {
+    const lat = Number(camera.geo_lat);
+    const lon = Number(camera.geo_lon);
+    const fov = Number(camera.geo_fov) || 60;
+    const range = Number(camera.geo_range_m) || 80;
+    const azimuth = Number(camera.geo_azimuth) || 0;
+    const points = sectorPoints(lat, lon, azimuth, fov, range);
+    let polygons = [points];
+    if (window.turf) {
+      try {
+        const ring = points.map(([la, lo]) => [lo, la]);
+        ring.push(ring[0]);
+        const sector = window.turf.polygon([ring]);
+        const cuts = territoryFootprints().map((item) => {
+          const cutRing = (item.points || []).map(([la, lo]) => [lo, la]);
+          if (cutRing.length < 3) return null;
+          cutRing.push(cutRing[0]);
+          return window.turf.polygon([cutRing]);
+        }).filter(Boolean);
+        let result = sector;
+        for (const cut of cuts) result = window.turf.difference(result, cut);
+        if (result?.geometry) {
+          const geometry = result.geometry;
+          polygons = geometry.type === "Polygon"
+            ? [geometry.coordinates[0].map(([lo, la]) => [la, lo])]
+            : geometry.coordinates.map((poly) => poly[0].map(([lo, la]) => [la, lo]));
+        }
+      } catch (error) {
+        polygons = [points];
+      }
+    }
+    for (const polygon of polygons) {
+      window.L.polygon(polygon, {
+        color: "#49c6d4", weight: 1, fillColor: "#49c6d4", fillOpacity: 0.18,
+      }).addTo(state.geoLayer);
+    }
+  }
+
   function renderGeo() {
     if (!isTerritory()) return;
     if (!initGeoMap()) return;
     if (state.geoLayer) state.geoMap.removeLayer(state.geoLayer);
     state.geoLayer = window.L.layerGroup().addTo(state.geoMap);
+    for (const footprint of territoryFootprints()) {
+      window.L.polygon(footprint.points.map(([lat, lon]) => [lat, lon]), {
+        color: "#c58b4b", weight: 2, fillColor: "#3a2a1d", fillOpacity: 0.65,
+      }).addTo(state.geoLayer);
+    }
+    renderFootprintList();
     for (const camera of geoCameras()) {
       const lat = Number(camera.geo_lat);
       const lon = Number(camera.geo_lon);
-      const fov = Number(camera.geo_fov) || 60;
-      const range = Number(camera.geo_range_m) || 80;
-      const azimuth = Number(camera.geo_azimuth) || 0;
-      window.L.polygon(sectorPoints(lat, lon, azimuth, fov, range), {
-        color: "#49c6d4", weight: 1, fillColor: "#49c6d4", fillOpacity: 0.18,
-      }).addTo(state.geoLayer);
+      addSectorLayer(camera);
       const icon = window.L.divIcon({
         className: "",
         html: `<div class="geo-camera-marker">${esc((camera.name || "?").slice(0, 2).toUpperCase())}</div>`,
@@ -226,6 +284,7 @@
     if (isTerritory()) {
       $("#setupStage").hidden = true;
       $("#setupGeoStage").hidden = false;
+      $("#geoBuildingTools").hidden = false;
       image.hidden = true;
       empty.hidden = true;
       link.hidden = true;
@@ -234,6 +293,7 @@
     }
     $("#setupStage").hidden = false;
     $("#setupGeoStage").hidden = true;
+    $("#geoBuildingTools").hidden = true;
     $("#geoCameraTools").hidden = true;
     state.geoSelected = null;
     if (!floor) {
@@ -657,6 +717,60 @@
     renderWallLayer();
   });
 
+  $("#geoFootprintDraw").addEventListener("click", () => {
+    state.footprintMode = true;
+    state.footprintPoints = [];
+    $("#geoFootprintFinish").hidden = false;
+    $("#geoFootprintCancel").hidden = false;
+    $("#geoFootprintDraw").classList.add("active");
+    setStatus("Кликайте по карте контур здания, затем «Завершить».");
+  });
+  $("#geoFootprintCancel").addEventListener("click", () => {
+    state.footprintMode = false;
+    state.footprintPoints = [];
+    $("#geoFootprintFinish").hidden = true;
+    $("#geoFootprintCancel").hidden = true;
+    $("#geoFootprintDraw").classList.remove("active");
+    renderGeo();
+  });
+  $("#geoFootprintFinish").addEventListener("click", async () => {
+    if (state.footprintPoints.length < 3) {
+      setStatus("Нужно минимум 3 точки контура.");
+      return;
+    }
+    const name = window.prompt("Название здания:");
+    if (!name) return;
+    try {
+      const footprint = await api(`/api/buildings/${state.buildingId}/footprints`, {
+        method: "POST",
+        body: JSON.stringify({ name, points: state.footprintPoints }),
+      });
+      footprint.territory_id = state.buildingId;
+      state.footprints.push(footprint);
+      state.footprintMode = false;
+      state.footprintPoints = [];
+      $("#geoFootprintFinish").hidden = true;
+      $("#geoFootprintCancel").hidden = true;
+      $("#geoFootprintDraw").classList.remove("active");
+      renderGeo();
+      setStatus(`Контур здания «${name}» сохранён.`);
+    } catch (error) {
+      setStatus(`Ошибка: ${error.message}`);
+    }
+  });
+  $("#geoFootprintList").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-delete-footprint]");
+    if (!button) return;
+    try {
+      await api(`/api/buildings/${state.buildingId}/footprints/${button.dataset.deleteFootprint}`, { method: "DELETE" });
+      state.footprints = state.footprints.filter((item) => String(item.id) !== String(button.dataset.deleteFootprint));
+      renderGeo();
+      setStatus("Контур здания удалён.");
+    } catch (error) {
+      setStatus(`Ошибка: ${error.message}`);
+    }
+  });
+
   $("#geoSaveView").addEventListener("click", async () => {
     if (!state.geoSelected) return;
     const camera = state.geoSelected;
@@ -683,6 +797,7 @@
     try {
       state.data = await api("/api/map-setup");
       state.zones = state.data.zones || [];
+      state.footprints = state.data.footprints || [];
       const params = new URLSearchParams(window.location.search);
       const queryBuilding = Number(params.get("building_id"));
       const queryFloor = Number(params.get("floor_id"));

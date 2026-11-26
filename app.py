@@ -122,6 +122,13 @@ CREATE TABLE IF NOT EXISTS floors (
     plan_height INTEGER NOT NULL DEFAULT 0,
     walls_json TEXT NOT NULL DEFAULT '[]' 
 );
+CREATE TABLE IF NOT EXISTS territory_buildings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    territory_id INTEGER NOT NULL REFERENCES buildings(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    points_json TEXT NOT NULL DEFAULT '[]',
+    created_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS cameras (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     camera_ref TEXT NOT NULL,
@@ -353,6 +360,11 @@ def set_streamer_url(url: str):
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (url,)
     )
     get_db().commit()
+
+
+def get_app_setting(key: str, default: str = "") -> str:
+    row = one("SELECT value FROM settings WHERE key=?", (key,))
+    return row["value"] if row else default
 
 
 def get_viewer_url() -> str:
@@ -896,6 +908,19 @@ def merge_duplicate_cameras():
     if removed:
         db.commit()
     return removed
+
+
+def cleanup_phantom_zones():
+    """Удалить пустые автозоны, оставшиеся от старых миграций камер."""
+    db = get_db()
+    cursor = db.execute(
+        "DELETE FROM zones WHERE "
+        "id NOT IN (SELECT zone_id FROM cameras WHERE zone_id IS NOT NULL) "
+        "AND (geometry_json IS NULL OR geometry_json='[]') "
+        "AND id NOT IN (SELECT DISTINCT zone_id FROM zone_schedules)"
+    )
+    db.commit()
+    return cursor.rowcount
 
 
 def sync_viewer_cameras(floor_id: int):
@@ -1839,8 +1864,8 @@ def index():
 def map_setup_page():
     return render_template(
         "map_setup.html",
-        geo_provider=GEO_MAP_PROVIDER,
-        yandex_key=YANDEX_MAPS_API_KEY,
+        geo_provider=get_app_setting("geo_map_provider", GEO_MAP_PROVIDER),
+        yandex_key=get_app_setting("yandex_maps_api_key", YANDEX_MAPS_API_KEY),
     )
 
 
@@ -1875,7 +1900,19 @@ def api_map_setup():
             zone["points"] = json.loads(zone.get("geometry_json") or "[]")
         except ValueError:
             zone["points"] = []
-    return jsonify({"buildings": buildings, "floors": floors, "cameras": cameras, "zones": zones})
+    footprints = rows(
+        "SELECT tb.*, b.name AS territory_name FROM territory_buildings tb "
+        "JOIN buildings b ON b.id=tb.territory_id ORDER BY tb.id"
+    )
+    for footprint in footprints:
+        try:
+            footprint["points"] = json.loads(footprint.get("points_json") or "[]")
+        except ValueError:
+            footprint["points"] = []
+    return jsonify({
+        "buildings": buildings, "floors": floors, "cameras": cameras,
+        "zones": zones, "footprints": footprints,
+    })
 
 
 def _point_in_polygon(x: float, y: float, points: list) -> bool:
@@ -1921,6 +1958,47 @@ def api_create_zone(floor_id: int):
     zone_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
     db.commit()
     return jsonify({"ok": True, "zone_id": zone_id, "id": zone_id, "name": name, "points": clean})
+
+
+@app.post("/api/buildings/<int:territory_id>/footprints")
+@admin_required
+def api_add_footprint(territory_id: int):
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    points = data.get("points") or []
+    if not name or not isinstance(points, list) or len(points) < 3:
+        return jsonify({"error": "нужно имя и минимум 3 точки"}), 400
+    clean = []
+    for point in points:
+        try:
+            lat, lon = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            clean.append([lat, lon])
+    if len(clean) < 3:
+        return jsonify({"error": "некорректный контур"}), 400
+    if not one("SELECT * FROM buildings WHERE id=?", (territory_id,)):
+        return jsonify({"error": "объект не найден"}), 404
+    db = get_db()
+    db.execute(
+        "INSERT INTO territory_buildings (territory_id, name, points_json, created_at) VALUES (?, ?, ?, ?)",
+        (territory_id, name, json.dumps(clean), time.time()),
+    )
+    footprint_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.commit()
+    return jsonify({"ok": True, "id": footprint_id, "name": name, "points": clean})
+
+
+@app.delete("/api/buildings/<int:territory_id>/footprints/<int:footprint_id>")
+@admin_required
+def api_delete_footprint(territory_id: int, footprint_id: int):
+    get_db().execute(
+        "DELETE FROM territory_buildings WHERE id=? AND territory_id=?",
+        (footprint_id, territory_id),
+    )
+    get_db().commit()
+    return jsonify({"ok": True})
 
 
 @app.post("/api/cameras/<int:camera_id>/place")
@@ -2132,6 +2210,7 @@ def viewer_event_ingest():
 
 with app.app_context():
     init_db()
+    cleanup_phantom_zones()
 notifications.configure(DB_PATH)
 
 

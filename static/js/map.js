@@ -211,8 +211,6 @@ function renderCoverage() {
     const fov = Math.max(10, Math.min(180, Number(cam.fov) || 70));
     const radius = Math.max(5, Math.min(100, Number(cam.view_range) || 35)) / 100 * Math.min(box.w, box.h);
     const visible = [[cx, cy]];
-    const rays = [];
-    const deadQuads = [];
     const steps = 64;
     for (let i = 0; i <= steps; i++) {
       const a = (angle - fov / 2 + (fov * i) / steps) * Math.PI / 180;
@@ -220,25 +218,8 @@ function renderCoverage() {
       const edge = boundaryDistance(cx, cy, dx, dy, box);
       const wall = rayWallDistance(cx, cy, dx, dy, wallsPx);
       const outer = Math.max(1, Math.min(radius, edge));
-      const blocked = wall < outer - 0.5;
-      const hit = blocked ? wall : outer;
-      const point = [cx + dx * hit, cy + dy * hit];
-      visible.push(point);
-      rays.push({ outer: [cx + dx * outer, cy + dy * outer], wall: blocked ? [cx + dx * wall, cy + dy * wall] : null });
-    }
-    // Красные участки: от стены до внешней границы сектора.
-    for (let i = 0; i < rays.length - 1; i++) {
-      const a = rays[i], b = rays[i + 1];
-      if (a.wall && b.wall) {
-        deadQuads.push([a.wall, b.wall, b.outer, a.outer]);
-      }
-    }
-    for (const quad of deadQuads) {
-      const d = "M " + quad.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ") + " Z";
-      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", d);
-      path.setAttribute("class", "dead-zone");
-      group.appendChild(path);
+      const hit = Math.min(outer, wall);
+      visible.push([cx + dx * hit, cy + dy * hit]);
     }
     const d = "M " + visible.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join(" L ") + " Z";
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");

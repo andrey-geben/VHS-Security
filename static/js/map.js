@@ -90,6 +90,15 @@ function resetMapView() {
   applyMapTransform();
 }
 
+function panMap(dx, dy) {
+  const stage = $("#planStage");
+  if (!stage) return;
+  const rect = stage.getBoundingClientRect();
+  state.panX += dx * rect.width;
+  state.panY += dy * rect.height;
+  applyMapTransform();
+}
+
 function recentAlarm(cameraId) {
   return (state.data.floor.alarms || []).some((a) => Number(a.camera_id) === Number(cameraId) && a.status === "active");
 }
@@ -773,6 +782,10 @@ function stagePoint(event) {
 $("#zoomIn").addEventListener("click", () => setMapZoom(state.zoom * 1.25));
 $("#zoomOut").addEventListener("click", () => setMapZoom(state.zoom / 1.25));
 $("#zoomFit").addEventListener("click", resetMapView);
+$("#panLeft").addEventListener("click", () => panMap(0.2, 0));
+$("#panUp").addEventListener("click", () => panMap(0, 0.2));
+$("#panDown").addEventListener("click", () => panMap(0, -0.2));
+$("#panRight").addEventListener("click", () => panMap(-0.2, 0));
 
 $("#planStage").addEventListener("wheel", (event) => {
   event.preventDefault();

@@ -949,6 +949,7 @@ def sync_viewer_state(floor_id: int):
                 "SELECT camera_ref FROM cameras WHERE name=?", (name,)
             ).fetchall()
         )
+    refs = list(dict.fromkeys(refs))
     removed = 0
     db = get_db()
     if refs:

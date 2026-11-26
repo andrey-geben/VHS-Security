@@ -19,9 +19,11 @@
       <a class="button" href="{{ url_for('index') }}">← На карту</a>
     </div>
   </div>
-  <div class="mosaic-status" id="mosaicStatus">Загрузка камер…</div>
+  <div class="mosaic-topline">
+    <div class="mosaic-status" id="mosaicStatus">Загрузка камер…</div>
+    <div class="mosaic-legend"><span><i class="dot red"></i> событие в журнале</span><span><i class="dot green"></i> на охране</span><span><i class="dot gray"></i> снята</span></div>
+  </div>
   <div id="mosaicGroups"></div>
-  <div class="mosaic-legend"><span><i class="dot red"></i> событие в журнале</span><span><i class="dot green"></i> на охране</span><span><i class="dot gray"></i> снята</span></div>
 </div>
 {% endblock %}
 {% block scripts %}

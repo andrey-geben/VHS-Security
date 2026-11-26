@@ -1,6 +1,6 @@
 (function () {
   const state = {
-    cameras: [], mode: "floor", groupKey: null, page: 0,
+    cameras: [], mode: "building", objectKey: null, detailKey: null, page: 0,
     cols: 3, rows: 2, perPage: 6, signature: "", players: new Map(), timer: null,
   };
 
@@ -16,9 +16,41 @@
     return Number(camera.last_event_ts || 0) > Date.now() / 1000 - 30;
   }
 
-  function buildGroups() {
+  function buildObjects() {
     const result = new Map();
     for (const camera of state.cameras) {
+      const key = `building-${camera.building_id ?? "none"}`;
+      if (!result.has(key)) {
+        result.set(key, {
+          key,
+          title: camera.building_name || "Без объекта",
+          cameras: [],
+        });
+      }
+      result.get(key).cameras.push(camera);
+    }
+    return [...result.values()];
+  }
+
+  function currentObject() {
+    const objects = buildObjects();
+    if (!objects.length) return null;
+    let object = objects.find((item) => item.key === state.objectKey);
+    if (!object) {
+      object = objects[0];
+      state.objectKey = object.key;
+      state.detailKey = null;
+      state.page = 0;
+    }
+    return object;
+  }
+
+  function buildDetails(object) {
+    if (state.mode === "building") {
+      return [{ key: "all", title: object.title, cameras: object.cameras }];
+    }
+    const result = new Map();
+    for (const camera of object.cameras) {
       let key, title;
       if (state.mode === "guard") {
         if (!camera.zone_id) { key = "none"; title = "Без зоны"; }
@@ -34,16 +66,16 @@
     return [...result.values()];
   }
 
-  function currentGroup() {
-    const groups = buildGroups();
-    if (!groups.length) return null;
-    let group = groups.find((item) => item.key === state.groupKey);
-    if (!group) {
-      group = groups[0];
-      state.groupKey = group.key;
+  function currentDetail(object) {
+    const details = buildDetails(object);
+    if (!details.length) return null;
+    let detail = details.find((item) => item.key === state.detailKey);
+    if (!detail) {
+      detail = details[0];
+      state.detailKey = detail.key;
       state.page = 0;
     }
-    return group;
+    return detail;
   }
 
   function computeLayout() {
@@ -109,18 +141,32 @@
     }
   }
 
-  function renderTabs(groups) {
+  function renderObjectTabs(objects) {
     const root = document.getElementById("mosaicGroupTabs");
     if (!root) return;
-    root.innerHTML = groups.map((group) => (
-      `<button type="button" class="mosaic-tab${group.key === state.groupKey ? " active" : ""}" data-group="${esc(group.key)}">${esc(group.title)} <small>${group.cameras.length}</small></button>`
+    root.innerHTML = objects.map((object) => (
+      `<button type="button" class="mosaic-tab${object.key === state.objectKey ? " active" : ""}" data-object="${esc(object.key)}">${esc(object.title)} <small>${object.cameras.length}</small></button>`
     )).join("");
   }
 
-  function renderPager(group) {
+  function renderDetailTabs(details) {
+    const root = document.getElementById("mosaicDetailTabs");
+    if (!root) return;
+    if (state.mode === "building" || details.length === 0) {
+      root.hidden = true;
+      root.innerHTML = "";
+      return;
+    }
+    root.hidden = false;
+    root.innerHTML = details.map((detail) => (
+      `<button type="button" class="mosaic-tab${detail.key === state.detailKey ? " active" : ""}" data-detail="${esc(detail.key)}">${esc(detail.title)} <small>${detail.cameras.length}</small></button>`
+    )).join("");
+  }
+
+  function renderPager(detail) {
     const root = document.getElementById("mosaicPager");
     if (!root) return;
-    const pages = Math.max(1, Math.ceil(group.cameras.length / state.perPage));
+    const pages = Math.max(1, Math.ceil(detail.cameras.length / state.perPage));
     state.page = Math.max(0, Math.min(state.page, pages - 1));
     if (pages <= 1) { root.innerHTML = ""; return; }
     const buttons = [`<button type="button" class="mosaic-page-btn" data-page="${state.page - 1}" ${state.page === 0 ? "disabled" : ""}>‹</button>`];
@@ -131,17 +177,17 @@
     root.innerHTML = buttons.join("");
   }
 
-  function renderGrid(group) {
+  function renderGrid(detail) {
     teardown();
     const root = document.getElementById("mosaicGroups");
     if (!root) return;
     root.innerHTML = "";
-    if (!group || !group.cameras.length) {
+    if (!detail || !detail.cameras.length) {
       root.innerHTML = '<p class="muted">Камеры не найдены. Проверьте синхронизацию с Viewer.</p>';
       return;
     }
     const start = state.page * state.perPage;
-    const cameras = group.cameras.slice(start, start + state.perPage);
+    const cameras = detail.cameras.slice(start, start + state.perPage);
     const section = document.createElement("section");
     section.className = "mosaic-group";
     const grid = document.createElement("div");
@@ -160,7 +206,7 @@
         <span class="mosaic-badge" hidden>Событие</span>
         <div class="mosaic-overlay">
           <b class="mosaic-name">${esc(camera.name)}</b>
-          <span class="mosaic-meta">${esc(camera.floor_name || "")}${camera.zone_name ? ` · ${esc(camera.zone_name)}` : ""}</span>
+          <span class="mosaic-meta">${esc(camera.building_name || "")} · ${esc(camera.floor_name || "")}${camera.zone_name ? ` · ${esc(camera.zone_name)}` : ""}</span>
         </div>`;
       if (camera.stream_url) {
         const placeholder = tile.querySelector(".mosaic-placeholder");
@@ -174,23 +220,30 @@
     root.appendChild(section);
   }
 
+  function ensureSelection() {
+    const object = currentObject();
+    const details = object ? buildDetails(object) : [];
+    const detail = object ? currentDetail(object) : null;
+    return { object, details, detail };
+  }
+
   function render() {
     computeLayout();
-    const groups = buildGroups();
-    currentGroup();
-    renderTabs(groups);
-    const group = currentGroup();
-    if (!group) {
+    const objects = buildObjects();
+    const { object, details, detail } = ensureSelection();
+    renderObjectTabs(objects);
+    renderDetailTabs(details);
+    if (!object || !detail) {
       renderPager({ cameras: [] });
       renderGrid(null);
       return;
     }
-    renderPager(group);
-    renderGrid(group);
-    const pages = Math.max(1, Math.ceil(group.cameras.length / state.perPage));
+    renderPager(detail);
+    renderGrid(detail);
+    const pages = Math.max(1, Math.ceil(detail.cameras.length / state.perPage));
     const status = document.getElementById("mosaicStatus");
     if (status) {
-      status.textContent = `Камер: ${state.cameras.length} · страница ${state.page + 1}/${pages}`;
+      status.textContent = `${object.title} · ${detail.title} · камер: ${detail.cameras.length} · страница ${state.page + 1}/${pages}`;
     }
   }
 
@@ -202,20 +255,20 @@
       render();
       return;
     }
-    const group = currentGroup();
-    if (!group) { render(); return; }
-    renderTabs(buildGroups());
-    renderPager(group);
+    const { object, details, detail } = ensureSelection();
+    if (!object || !detail) { render(); return; }
+    renderObjectTabs(buildObjects());
+    renderDetailTabs(details);
+    renderPager(detail);
     const start = state.page * state.perPage;
-    const pageCameras = group.cameras.slice(start, start + state.perPage);
-    for (const camera of pageCameras) {
+    for (const camera of detail.cameras.slice(start, start + state.perPage)) {
       const tile = document.querySelector(`[data-camera-id="${camera.id}"]`);
       if (tile) updateTile(tile, camera);
     }
-    const pages = Math.max(1, Math.ceil(group.cameras.length / state.perPage));
+    const pages = Math.max(1, Math.ceil(detail.cameras.length / state.perPage));
     const status = document.getElementById("mosaicStatus");
     if (status) {
-      status.textContent = `Камер: ${state.cameras.length} · страница ${state.page + 1}/${pages}`;
+      status.textContent = `${object.title} · ${detail.title} · камер: ${detail.cameras.length} · страница ${state.page + 1}/${pages}`;
     }
   }
 
@@ -235,15 +288,24 @@
 
   document.getElementById("mosaicGroup")?.addEventListener("change", (event) => {
     state.mode = event.target.value;
-    state.groupKey = null;
+    state.objectKey = null;
+    state.detailKey = null;
     state.page = 0;
     render();
   });
   document.getElementById("mosaicRefresh")?.addEventListener("click", () => load(true));
   document.getElementById("mosaicGroupTabs")?.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-group]");
+    const button = event.target.closest("[data-object]");
     if (!button) return;
-    state.groupKey = button.dataset.group;
+    state.objectKey = button.dataset.object;
+    state.detailKey = null;
+    state.page = 0;
+    render();
+  });
+  document.getElementById("mosaicDetailTabs")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-detail]");
+    if (!button) return;
+    state.detailKey = button.dataset.detail;
     state.page = 0;
     render();
   });

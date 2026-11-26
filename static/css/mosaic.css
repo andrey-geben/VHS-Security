@@ -12,6 +12,8 @@ body.mosaic-body main{flex:1 1 auto;min-height:0;height:auto;overflow:hidden}
 .mosaic-tab{border:1px solid #2e4657;background:#0d1b25;color:var(--muted);border-radius:4px;padding:5px 8px;font-size:10px;white-space:nowrap;cursor:pointer}
 .mosaic-tab.active{border-color:var(--cyan);color:#dffaff;background:#12303d}
 .mosaic-tab small{opacity:.65;margin-left:4px}
+.mosaic-subtabs{padding-left:14px;margin-top:-2px}
+.mosaic-subtabs .mosaic-tab{font-size:9px;padding:4px 7px;background:#0a151e}
 .mosaic-topline{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 6px;flex:0 0 auto}
 .mosaic-status{font-size:10px;color:var(--muted)}
 .mosaic-pager{display:flex;align-items:center;gap:3px;min-height:22px}

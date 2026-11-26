@@ -11,8 +11,9 @@
     <div class="mosaic-controls">
       <label>Группировка
         <select id="mosaicGroup">
-          <option value="floor">По этажам</option>
-          <option value="guard">По охране</option>
+          <option value="building">По объектам</option>
+          <option value="floor">Объект → этажи</option>
+          <option value="guard">Объект → охрана</option>
         </select>
       </label>
       <button type="button" class="ghost" id="mosaicRefresh">Обновить</button>
@@ -21,6 +22,7 @@
   </div>
 
   <div class="mosaic-tabs" id="mosaicGroupTabs"></div>
+  <div class="mosaic-tabs mosaic-subtabs" id="mosaicDetailTabs" hidden></div>
 
   <div class="mosaic-topline">
     <div class="mosaic-pager" id="mosaicPager"></div>

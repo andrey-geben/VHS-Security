@@ -1,13 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Настройки — VHS-Security{% endblock %}
 {% block content %}
+<style>
+.building-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
+.building-edit{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1fr) auto;gap:6px;align-items:center}
+.building-edit input{min-width:0}
+.building-row form{margin:0}
+.building-row .danger{border-color:#6b2b33;color:#ff9aa2}
+@media(max-width:760px){.building-row{grid-template-columns:1fr}.building-edit{grid-template-columns:1fr}}
+</style>
 <div class="settings">
   <div class="toolbar"><div><div class="kicker">Конфигурация</div><h1>Объект и камеры</h1></div><a class="button" href="{{ url_for('index') }}">← На карту</a></div>
   <div class="settings-grid">
     <section class="card">
-      <h2>Здания</h2>
-      {% for b in buildings %}<div class="row"><b>{{ b.name }}</b><span class="muted">{{ b.address }}</span></div>{% else %}<p class="muted">Нет зданий.</p>{% endfor %}
-      <form method="post" action="{{ url_for('add_building') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input name="name" placeholder="Название" required><input name="address" placeholder="Адрес"><button class="ghost" type="submit">Добавить здание</button></form>
+      <h2>Объекты (здания)</h2>
+      {% if request.args.get('building_error') == 'last' %}<p class="alert">Нельзя удалить единственный объект. Сначала создайте новый.</p>{% endif %}
+      {% for b in buildings %}<div class="row building-row">
+        <form method="post" action="{{ url_for('edit_building', building_id=b.id) }}" class="building-edit">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <input name="name" value="{{ b.name }}" placeholder="Название" required>
+          <input name="address" value="{{ b.address }}" placeholder="Адрес">
+          <button class="ghost" type="submit">Сохранить</button>
+        </form>
+        <form method="post" action="{{ url_for('delete_building', building_id=b.id) }}" onsubmit="return confirm('Удалить объект «{{ b.name }}» со всеми этажами, зонами и камерами?');">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button class="ghost danger" type="submit">Удалить</button>
+        </form>
+      </div>{% else %}<p class="muted">Нет объектов.</p>{% endfor %}
+      <form method="post" action="{{ url_for('add_building') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input name="name" placeholder="Название" required><input name="address" placeholder="Адрес"><button class="ghost" type="submit">Добавить объект</button></form>
     </section>
     <section class="card">
       <h2>Этажи</h2>

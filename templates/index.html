@@ -6,6 +6,15 @@ body[data-role="viewer"] .admin-only{display:none!important}
 body[data-role="viewer"] .rotate-handle{display:none!important}
 body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
 .guard-summary{font-size:10px;color:var(--muted);white-space:nowrap}
+.map-zoom{display:flex;align-items:center;gap:2px;border:1px solid #2e4657;border-radius:4px;padding:2px;background:#0b1720}
+.map-zoom button{min-width:24px;height:24px;padding:0 5px;border:0;border-radius:3px;background:transparent;color:var(--muted);font-size:14px;cursor:pointer}
+.map-zoom button:hover{background:#17303d;color:var(--ink)}
+.map-zoom span{min-width:42px;text-align:center;font-size:9px;color:var(--muted)}
+.plan-stage{overflow:hidden}
+.plan-world{position:absolute;inset:0;transform-origin:0 0;will-change:transform;z-index:1}
+.plan-world img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;user-select:none}
+.plan-world .coverage,.plan-world .markers,.plan-world .event-markers{position:absolute;inset:0}
+.plan-stage.panning{cursor:grabbing}
 .guard-summary b{color:var(--green)}
 .guard-btn{width:100%;margin-top:7px;background:#1b2b24!important;border-color:#335b48!important;color:#8ee0b3!important}
 .guard-btn.disarm{background:#2a171a!important;border-color:#5d3035!important;color:#ff9aa2!important}
@@ -33,6 +42,12 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
       <div class="toolbar-actions">
         <select id="floorSelect" aria-label="Этаж"></select>
         <span class="guard-summary" id="guardSummary"></span>
+        <div class="map-zoom" title="Масштаб карты">
+          <button type="button" id="zoomOut" aria-label="Уменьшить">−</button>
+          <span id="zoomLabel">100%</span>
+          <button type="button" id="zoomIn" aria-label="Увеличить">+</button>
+          <button type="button" id="zoomFit" aria-label="Сбросить масштаб">⤢</button>
+        </div>
         <button class="ghost admin-only" id="discoverBtn">Найти Viewer</button>
         <button class="ghost admin-only" id="wallBtn">Стены</button>
         <button class="ghost admin-only" id="wallClear">Очистить стены</button>
@@ -64,10 +79,12 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
         <span>Загрузите PNG/JPG/SVG плана в настройках, затем расставьте камеры.</span>
         <a class="button" href="{{ url_for('settings') }}">В настройки</a>
       </div>
-      <img id="planImage" alt="План этажа" hidden>
-      <svg id="coverage" class="coverage" aria-hidden="true"></svg>
-      <div id="markers" class="markers"></div>
-      <div id="eventMarkers" class="event-markers"></div>
+      <div id="planWorld" class="plan-world">
+        <img id="planImage" alt="План этажа" hidden>
+        <svg id="coverage" class="coverage" aria-hidden="true"></svg>
+        <div id="markers" class="markers"></div>
+        <div id="eventMarkers" class="event-markers"></div>
+      </div>
     </div>
     <div class="legend"><span><i class="dot ok"></i> камера</span><span><i class="dot alarm"></i> событие</span><span><i class="dot plate"></i> номер</span></div>
   </section>

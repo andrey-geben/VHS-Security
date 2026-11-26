@@ -1,6 +1,6 @@
 const CSRF = window.CSRF_TOKEN;
 const READ_ONLY = window.USER_ROLE !== "admin";
-const state = { floorId: null, data: null, busy: false, selectedId: null, selectedEventId: null, highlightEventId: null, highlightCameraId: null, cameraFilter: null, wallMode: false, wallStart: null, wallPreview: null };
+const state = { floorId: null, data: null, busy: false, selectedId: null, selectedEventId: null, highlightEventId: null, highlightCameraId: null, cameraFilter: null, wallMode: false, wallStart: null, wallPreview: null, zoom: 1, panX: 0, panY: 0, panning: null };
 
 const $ = (sel) => document.querySelector(sel);
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -31,6 +31,7 @@ async function loadState(floorId) {
     renderPlan();
     renderMarkers();
     renderEvents();
+    applyMapTransform();
     setStatus("");
   } catch (error) {
     setStatus(`Ошибка: ${error.message}`);
@@ -43,7 +44,7 @@ function renderFloors() {
     `<option value="${f.id}">${esc(f.building_name)} · ${esc(f.name)}</option>`
   ).join("");
   select.value = String(state.floorId);
-  select.onchange = () => { state.selectedId = null; loadState(select.value); };
+  select.onchange = () => { state.selectedId = null; resetMapView(); loadState(select.value); };
 }
 
 function renderPlan() {
@@ -58,6 +59,35 @@ function renderPlan() {
     image.hidden = true;
     empty.hidden = false;
   }
+}
+
+function applyMapTransform() {
+  const world = $("#planWorld");
+  if (world) world.style.transform = `translate(${state.panX}px, ${state.panY}px) scale(${state.zoom})`;
+  const label = $("#zoomLabel");
+  if (label) label.textContent = `${Math.round(state.zoom * 100)}%`;
+}
+
+function setMapZoom(nextZoom, anchorX, anchorY) {
+  const stage = $("#planStage");
+  if (!stage) return;
+  const rect = stage.getBoundingClientRect();
+  const px = anchorX ?? rect.width / 2;
+  const py = anchorY ?? rect.height / 2;
+  const previous = state.zoom;
+  const clamped = Math.max(0.5, Math.min(10, nextZoom));
+  if (Math.abs(clamped - previous) < 0.001) return;
+  state.panX = px - (px - state.panX) * (clamped / previous);
+  state.panY = py - (py - state.panY) * (clamped / previous);
+  state.zoom = clamped;
+  applyMapTransform();
+}
+
+function resetMapView() {
+  state.zoom = 1;
+  state.panX = 0;
+  state.panY = 0;
+  applyMapTransform();
 }
 
 function recentAlarm(cameraId) {
@@ -355,8 +385,8 @@ function bindRotate(marker, cam) {
     const move = (ev) => {
       if (!rotating) return;
       const stage = $("#planStage").getBoundingClientRect();
-      const cx = stage.left + (cam.x / 100) * stage.width;
-      const cy = stage.top + (cam.y / 100) * stage.height;
+      const cx = stage.left + state.panX + (cam.x / 100) * stage.width * state.zoom;
+      const cy = stage.top + state.panY + (cam.y / 100) * stage.height * state.zoom;
       cam.angle = normAngle(Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI);
       syncSelectedMarker(cam);
     };
@@ -380,7 +410,7 @@ function bindDrag(marker, cam) {
   if (READ_ONLY) return;
   let dragging = false, moved = false;
   marker.addEventListener("pointerdown", (event) => {
-    if (event.target.closest(".rotate-handle") || event.button !== 0) return;
+    if (event.altKey || event.target.closest(".rotate-handle") || event.button !== 0) return;
     event.preventDefault();
     dragging = true; moved = false;
     marker.setPointerCapture(event.pointerId);
@@ -388,9 +418,7 @@ function bindDrag(marker, cam) {
   });
   marker.addEventListener("pointermove", (event) => {
     if (!dragging) return;
-    const stage = $("#planStage").getBoundingClientRect();
-    const x = Math.max(0, Math.min(100, ((event.clientX - stage.left) / stage.width) * 100));
-    const y = Math.max(0, Math.min(100, ((event.clientY - stage.top) / stage.height) * 100));
+    const [x, y] = stagePoint(event);
     marker.style.left = `${x}%`; marker.style.top = `${y}%`;
     cam.x = x; cam.y = y; moved = true;
     renderCoverage();
@@ -734,11 +762,54 @@ $("#ceStream").addEventListener("click", () => {
 
 function stagePoint(event) {
   const rect = $("#planStage").getBoundingClientRect();
+  const x = (event.clientX - rect.left - state.panX) / state.zoom;
+  const y = (event.clientY - rect.top - state.panY) / state.zoom;
   return [
-    Math.max(0, Math.min(100, ((event.clientX - rect.left) / rect.width) * 100)),
-    Math.max(0, Math.min(100, ((event.clientY - rect.top) / rect.height) * 100)),
+    Math.max(0, Math.min(100, (x / rect.width) * 100)),
+    Math.max(0, Math.min(100, (y / rect.height) * 100)),
   ];
 }
+
+$("#zoomIn").addEventListener("click", () => setMapZoom(state.zoom * 1.25));
+$("#zoomOut").addEventListener("click", () => setMapZoom(state.zoom / 1.25));
+$("#zoomFit").addEventListener("click", resetMapView);
+
+$("#planStage").addEventListener("wheel", (event) => {
+  event.preventDefault();
+  const rect = $("#planStage").getBoundingClientRect();
+  const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+  setMapZoom(state.zoom * factor, event.clientX - rect.left, event.clientY - rect.top);
+}, { passive: false });
+
+$("#planStage").addEventListener("pointerdown", (event) => {
+  const panButton = event.button === 1 || (event.button === 0 && event.altKey);
+  if (!panButton || event.target.closest(".camera-editor")) return;
+  event.preventDefault();
+  state.panning = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    panX: state.panX,
+    panY: state.panY,
+  };
+  $("#planStage").classList.add("panning");
+  $("#planStage").setPointerCapture(event.pointerId);
+});
+$("#planStage").addEventListener("pointermove", (event) => {
+  if (!state.panning || state.panning.pointerId !== event.pointerId) return;
+  state.panX = state.panning.panX + event.clientX - state.panning.startX;
+  state.panY = state.panning.panY + event.clientY - state.panning.startY;
+  applyMapTransform();
+});
+$("#planStage").addEventListener("pointerup", (event) => {
+  if (!state.panning || state.panning.pointerId !== event.pointerId) return;
+  state.panning = null;
+  $("#planStage").classList.remove("panning");
+});
+$("#planStage").addEventListener("pointercancel", () => {
+  state.panning = null;
+  $("#planStage").classList.remove("panning");
+});
 
 $("#wallBtn").addEventListener("click", () => {
   state.wallMode = !state.wallMode;
@@ -756,7 +827,7 @@ $("#wallClear").addEventListener("click", async () => {
   } catch (error) { setStatus(`Ошибка: ${error.message}`); }
 });
 $("#planStage").addEventListener("pointerdown", (event) => {
-  if (!state.wallMode || event.button !== 0) return;
+  if (!state.wallMode || event.button !== 0 || event.altKey) return;
   if (event.target.closest(".marker") || event.target.closest(".camera-editor")) return;
   event.preventDefault();
   state.wallStart = stagePoint(event);

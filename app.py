@@ -1483,6 +1483,32 @@ def api_gsm_status():
     return jsonify(notifications.gsm_status())
 
 
+@app.post("/settings/buildings/<int:building_id>/edit")
+@admin_required
+def edit_building(building_id: int):
+    name = request.form.get("name", "").strip()
+    address = request.form.get("address", "").strip()
+    if name:
+        get_db().execute(
+            "UPDATE buildings SET name=?, address=? WHERE id=?",
+            (name, address, building_id),
+        )
+        get_db().commit()
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/buildings/<int:building_id>/delete")
+@admin_required
+def delete_building(building_id: int):
+    db = get_db()
+    count = db.execute("SELECT COUNT(*) AS n FROM buildings").fetchone()["n"]
+    if count <= 1:
+        return redirect(url_for("settings", building_error="last"))
+    db.execute("DELETE FROM buildings WHERE id=?", (building_id,))
+    db.commit()
+    return redirect(url_for("settings"))
+
+
 @app.post("/settings/zones")
 @admin_required
 def add_zone_page():
@@ -1709,13 +1735,14 @@ def api_whep():
 def api_mosaic():
     rows_data = rows(
         "SELECT c.*, f.name AS floor_name, f.level AS floor_level, "
+        "f.building_id AS building_id, b.name AS building_name, "
         "z.name AS zone_name, z.armed AS zone_armed, z.schedule_enabled AS zone_schedule_enabled, "
         "z.holiday_mode AS zone_holiday_mode, "
         "(SELECT MAX(e.ts) FROM events e WHERE e.camera_id=c.id) AS last_event_ts, "
         "(SELECT COUNT(*) FROM alarms a WHERE a.camera_id=c.id AND a.status='active') AS active_alarms "
-        "FROM cameras c JOIN floors f ON f.id=c.floor_id "
+        "FROM cameras c JOIN floors f ON f.id=c.floor_id JOIN buildings b ON b.id=f.building_id "
         "LEFT JOIN zones z ON z.id=c.zone_id "
-        "WHERE c.enabled=1 ORDER BY f.level, f.name, c.name"
+        "WHERE c.enabled=1 ORDER BY b.name, f.level, f.name, c.name"
     )
     cameras = []
     for camera in rows_data:

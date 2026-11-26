@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Настройка карт — VHS-Security{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/map-setup.css') }}">
+<div class="map-setup-page">
+  <div class="map-setup-head">
+    <div>
+      <div class="kicker">Администрирование</div>
+      <h1>Настройка карт</h1>
+      <p class="muted">Выберите объект и этаж, затем перетащите камеру на план.</p>
+    </div>
+    <div class="map-setup-actions">
+      <a class="button" href="{{ url_for('settings') }}">Планы и этажи</a>
+      <a class="button" href="{{ url_for('index') }}">← На карту</a>
+    </div>
+  </div>
+
+  <div class="map-setup-layout">
+    <aside class="camera-tray">
+      <div class="tray-head">
+        <div><div class="kicker">Камеры</div><h2>Доступные камеры</h2></div>
+        <span id="setupCameraCount" class="tray-count">0</span>
+      </div>
+      <input type="search" id="setupCameraSearch" placeholder="Поиск камеры…" autocomplete="off">
+      <p class="tray-hint">Перетащите карточку камеры на план справа. Камера будет привязана к выбранному объекту и этажу.</p>
+      <div class="tray-list" id="setupCameras"></div>
+    </aside>
+
+    <section class="setup-map-panel">
+      <div class="setup-toolbar">
+        <label>Объект
+          <select id="setupBuilding"></select>
+        </label>
+        <label>Этаж
+          <select id="setupFloor"></select>
+        </label>
+        <span class="setup-status" id="setupStatus">Загрузка…</span>
+        <a class="ghost setup-plan-link" id="setupPlanLink" href="{{ url_for('settings') }}" hidden>Загрузить план</a>
+      </div>
+      <div class="setup-stage" id="setupStage">
+        <div class="setup-empty" id="setupEmpty">
+          <b>План этажа не загружен</b>
+          <span>Загрузите план в настройках, затем вернитесь сюда.</span>
+        </div>
+        <img id="setupPlan" alt="План этажа" hidden draggable="false">
+        <div id="setupMarkers" class="setup-markers"></div>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/map-setup.js') }}"></script>
+{% endblock %}

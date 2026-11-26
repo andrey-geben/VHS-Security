@@ -1693,6 +1693,54 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/map-setup")
+@admin_required
+def map_setup_page():
+    return render_template("map_setup.html")
+
+
+@app.get("/api/map-setup")
+@admin_required
+def api_map_setup():
+    buildings = rows("SELECT * FROM buildings ORDER BY name")
+    floors = rows(
+        "SELECT f.*, b.name AS building_name FROM floors f "
+        "JOIN buildings b ON b.id=f.building_id ORDER BY b.name, f.level, f.name"
+    )
+    for floor in floors:
+        floor["plan_url"] = url_for("plan_file", filename=floor["plan_filename"]) if floor["plan_filename"] else ""
+    cameras = rows(
+        "SELECT c.*, f.name AS floor_name, f.building_id AS building_id, "
+        "b.name AS building_name, z.name AS zone_name "
+        "FROM cameras c JOIN floors f ON f.id=c.floor_id "
+        "JOIN buildings b ON b.id=f.building_id "
+        "LEFT JOIN zones z ON z.id=c.zone_id ORDER BY b.name, f.level, c.name"
+    )
+    return jsonify({"buildings": buildings, "floors": floors, "cameras": cameras})
+
+
+@app.post("/api/cameras/<int:camera_id>/place")
+@admin_required
+def api_place_camera(camera_id: int):
+    data = request.get_json(silent=True) or {}
+    try:
+        floor_id = int(data.get("floor_id"))
+        x = max(0.0, min(100.0, float(data.get("x"))))
+        y = max(0.0, min(100.0, float(data.get("y"))))
+    except (TypeError, ValueError):
+        return jsonify({"error": "floor_id, x, y обязательны"}), 400
+    floor = one("SELECT * FROM floors WHERE id=?", (floor_id,))
+    camera = one("SELECT * FROM cameras WHERE id=?", (camera_id,))
+    if not floor or not camera:
+        return jsonify({"error": "камера или этаж не найдены"}), 404
+    get_db().execute(
+        "UPDATE cameras SET floor_id=?, x=?, y=? WHERE id=?",
+        (floor_id, x, y, camera_id),
+    )
+    get_db().commit()
+    return jsonify({"ok": True, "camera_id": camera_id, "floor_id": floor_id, "x": x, "y": y})
+
+
 @app.route("/mosaic")
 @login_required
 def mosaic_page():

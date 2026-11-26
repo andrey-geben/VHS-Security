@@ -887,7 +887,7 @@ async function discoverViewers() {
   button.disabled = false; button.textContent = "Искать";
 }
 
-$("#discoverBtn").addEventListener("click", () => {
+$("#discoverBtn")?.addEventListener("click", () => {
   $("#discovery").hidden = false;
   discoverViewers();
 });

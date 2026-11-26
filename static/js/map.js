@@ -81,10 +81,72 @@ function renderFloors() {
   });
 }
 
+function renderMainGeo() {
+  const floor = state.data.floor;
+  const container = $("#mainGeoMap");
+  if (!window.L) {
+    container.innerHTML = '<div class="empty-plan"><b>Карта не загрузилась</b><span>Проверьте доступ к Leaflet.</span></div>';
+    return;
+  }
+  const lat = Number(floor.building_center_lat) || 55.751244;
+  const lon = Number(floor.building_center_lon) || 37.618423;
+  if (!state.mainGeoMap) {
+    state.mainGeoMap = window.L.map(container).setView([lat, lon], Number(floor.building_geo_zoom) || 16);
+    window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: "© OpenStreetMap",
+    }).addTo(state.mainGeoMap);
+  } else {
+    state.mainGeoMap.setView([lat, lon], Number(floor.building_geo_zoom) || 16);
+  }
+  if (state.mainGeoLayer) state.mainGeoMap.removeLayer(state.mainGeoLayer);
+  state.mainGeoLayer = window.L.layerGroup().addTo(state.mainGeoMap);
+  for (const footprint of (floor.footprints || [])) {
+    if ((footprint.points || []).length >= 3) {
+      window.L.polygon(footprint.points, {
+        color: "#c58b4b", weight: 2, fillColor: "#3a2a1d", fillOpacity: 0.65,
+      }).bindTooltip(footprint.name || "Здание").addTo(state.mainGeoLayer);
+    }
+  }
+  for (const camera of (floor.cameras || [])) {
+    if (camera.geo_lat == null || camera.geo_lon == null) continue;
+    const lat2 = Number(camera.geo_lat), lon2 = Number(camera.geo_lon);
+    const azimuth = Number(camera.geo_azimuth) || 0;
+    const fov = Number(camera.geo_fov) || 60;
+    const range = Number(camera.geo_range_m) || 80;
+    const points = [[lat2, lon2]];
+    for (let i = 0; i <= 24; i += 1) {
+      const a = (azimuth - fov / 2 + fov * i / 24) * Math.PI / 180;
+      points.push([
+        lat2 + range * Math.cos(a) / 111320,
+        lon2 + range * Math.sin(a) / (111320 * Math.cos(lat2 * Math.PI / 180)),
+      ]);
+    }
+    window.L.polygon(points, {
+      color: "#49c6d4", weight: 1, fillColor: "#49c6d4", fillOpacity: 0.18,
+    }).addTo(state.mainGeoLayer);
+    window.L.circleMarker([lat2, lon2], {
+      radius: 6, color: "#e6ffff", weight: 2, fillColor: "#49c6d4", fillOpacity: 1,
+    }).bindTooltip(camera.name || "", { direction: "top" }).addTo(state.mainGeoLayer);
+  }
+  setTimeout(() => state.mainGeoMap.invalidateSize(), 50);
+}
+
 function renderPlan() {
   const floor = state.data.floor;
   const image = $("#planImage");
   const empty = $("#emptyPlan");
+  const geo = $("#mainGeoMap");
+  const world = $("#planWorld");
+  if (floor.building_kind === "territory") {
+    image.hidden = true;
+    empty.hidden = true;
+    world.hidden = true;
+    geo.hidden = false;
+    renderMainGeo();
+    return;
+  }
+  geo.hidden = true;
+  world.hidden = false;
   if (floor.plan_url) {
     image.src = `${floor.plan_url}?v=${Date.now()}`;
     image.hidden = false;

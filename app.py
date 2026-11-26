@@ -701,6 +701,16 @@ def floor_payload(floor, include_events=False):
             "SELECT COUNT(*) AS n FROM cameras WHERE zone_id=?", (zone["id"],)
         )["n"]
     result["zones"] = zone_rows
+    footprints = rows(
+        "SELECT * FROM territory_buildings WHERE territory_id=? ORDER BY id",
+        (floor["building_id"],),
+    )
+    for footprint in footprints:
+        try:
+            footprint["points"] = json.loads(footprint.get("points_json") or "[]")
+        except ValueError:
+            footprint["points"] = []
+    result["footprints"] = footprints
     result["holidays"] = rows("SELECT * FROM holidays ORDER BY date")
     result["alarms"] = rows(
         "SELECT a.*, c.name AS camera_name FROM alarms a "
@@ -1166,7 +1176,9 @@ def api_state():
     ensure_viewer_stream_urls()
     floor_id = request.args.get("floor_id", type=int) or _default_floor_id()
     floor = one(
-        "SELECT f.*, b.name AS building_name FROM floors f "
+        "SELECT f.*, b.name AS building_name, b.kind AS building_kind, "
+        "b.center_lat AS building_center_lat, b.center_lon AS building_center_lon, "
+        "b.geo_zoom AS building_geo_zoom FROM floors f "
         "JOIN buildings b ON b.id=f.building_id WHERE f.id=?", (floor_id,)
     )
     if not floor:

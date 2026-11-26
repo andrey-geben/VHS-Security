@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Карта — VHS-Security{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 body[data-role="viewer"] .admin-only{display:none!important}
 body[data-role="viewer"] .rotate-handle{display:none!important}
@@ -12,6 +13,8 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
 .map-zoom span{min-width:42px;text-align:center;font-size:9px;color:var(--muted)}
 .map-pan{gap:1px}
 .plan-stage{overflow:hidden}
+#mainGeoMap{position:absolute;inset:0;z-index:2;background:#0b1720}
+#mainGeoMap .leaflet-container{width:100%;height:100%;background:#0b1720}
 .plan-world{position:absolute;inset:0;transform-origin:0 0;will-change:transform;z-index:1}
 .plan-world img{display:block;width:100%;height:100%;max-height:none;object-fit:contain;user-select:none}
 .plan-world .coverage,.plan-world .markers,.plan-world .event-markers{position:absolute;inset:0}
@@ -86,6 +89,7 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
         <p class="ce-hint">Тяни круглую ручку вокруг камеры, чтобы повернуть сектор.</p>
         <p class="ce-dead" id="ceDead" hidden>⚠ Сектор выходит за границы плана — часть зоны мёртвая.</p>
       </div>
+      <div id="mainGeoMap" hidden></div>
       <div class="empty-plan" id="emptyPlan">
         <b>План этажа не загружен</b>
         <span>Загрузите PNG/JPG/SVG плана в настройках, затем расставьте камеры.</span>
@@ -161,4 +165,4 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/whep-player.js') }}"></script><script src="{{ url_for('static', filename='js/map.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="{{ url_for('static', filename='js/whep-player.js') }}"></script><script src="{{ url_for('static', filename='js/map.js') }}"></script>{% endblock %}

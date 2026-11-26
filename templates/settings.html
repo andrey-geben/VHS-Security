@@ -29,6 +29,20 @@
 <div class="settings">
   <div class="toolbar"><div><div class="kicker">Конфигурация</div><h1>Объект и камеры</h1></div><a class="button" href="{{ url_for('index') }}">← На карту</a></div>
   <div class="settings-grid">
+    <section class="card wide">
+      <h2>Карты</h2>
+      <p class="muted">Провайдер подложки для территорий. Для Яндекса нужен действующий API-ключ.</p>
+      <form method="post" action="{{ url_for('save_map_settings') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <select name="geo_map_provider">
+          <option value="leaflet" {% if geo_provider != 'yandex' %}selected{% endif %}>OpenStreetMap (Leaflet)</option>
+          <option value="yandex" {% if geo_provider == 'yandex' %}selected{% endif %}>Яндекс Карты</option>
+        </select>
+        <input name="yandex_maps_api_key" value="{{ yandex_key }}" placeholder="API-ключ Яндекс Карт" autocomplete="off">
+        <button class="ghost" type="submit">Сохранить карты</button>
+      </form>
+      <p class="muted">Ключ хранится в SQLite и передаётся только в карту территорий. Без ключа используется OpenStreetMap.</p>
+    </section>
     <section class="card">
       <h2>Объекты (здания)</h2>
       {% if request.args.get('building_error') == 'last' %}<p class="alert">Нельзя удалить единственный объект. Сначала создайте новый.</p>{% endif %}

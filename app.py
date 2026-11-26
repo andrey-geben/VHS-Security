@@ -1531,10 +1531,13 @@ def settings():
         "SELECT j.*, a.title AS alarm_title FROM notification_jobs j "
         "LEFT JOIN alarms a ON a.id=j.alarm_id ORDER BY j.created_at DESC LIMIT 100"
     )
+    geo_provider = get_app_setting("geo_map_provider", GEO_MAP_PROVIDER)
+    yandex_key = get_app_setting("yandex_maps_api_key", YANDEX_MAPS_API_KEY)
     return render_template(
         "settings.html", buildings=buildings, floors=floors, cameras=cameras,
         users=users, holidays=holidays, zones=zones, notify=notify, jobs=jobs,
         current_year=time.localtime().tm_year,
+        geo_provider=geo_provider, yandex_key=yandex_key,
     )
 
 
@@ -1867,6 +1870,24 @@ def map_setup_page():
         geo_provider=get_app_setting("geo_map_provider", GEO_MAP_PROVIDER),
         yandex_key=get_app_setting("yandex_maps_api_key", YANDEX_MAPS_API_KEY),
     )
+
+
+@app.post("/settings/maps")
+@admin_required
+def save_map_settings():
+    provider = request.form.get("geo_map_provider", "leaflet")
+    if provider not in ("leaflet", "yandex"):
+        provider = "leaflet"
+    key = request.form.get("yandex_maps_api_key", "").strip()
+    db = get_db()
+    for name, value in (("geo_map_provider", provider), ("yandex_maps_api_key", key)):
+        db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (name, value),
+        )
+    db.commit()
+    return redirect(url_for("settings"))
 
 
 @app.get("/api/map-setup")

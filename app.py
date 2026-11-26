@@ -201,6 +201,7 @@ CREATE TABLE IF NOT EXISTS zones (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     floor_id INTEGER NOT NULL REFERENCES floors(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
+    geometry_json TEXT NOT NULL DEFAULT '[]',
     armed INTEGER NOT NULL DEFAULT 0,
     schedule_enabled INTEGER NOT NULL DEFAULT 0,
     holiday_mode TEXT NOT NULL DEFAULT 'weekday',
@@ -298,6 +299,9 @@ def init_db():
     floor_columns = {row[1] for row in db.execute("PRAGMA table_info(floors)").fetchall()}
     if "walls_json" not in floor_columns:
         db.execute("ALTER TABLE floors ADD COLUMN walls_json TEXT NOT NULL DEFAULT '[]'")
+    zone_columns = {row[1] for row in db.execute("PRAGMA table_info(zones)").fetchall()}
+    if "geometry_json" not in zone_columns:
+        db.execute("ALTER TABLE zones ADD COLUMN geometry_json TEXT NOT NULL DEFAULT '[]'")
     building_columns = {row[1] for row in db.execute("PRAGMA table_info(buildings)").fetchall()}
     for building_column, definition in (
         ("kind", "TEXT NOT NULL DEFAULT 'building'"),
@@ -419,6 +423,10 @@ def _camera_for_ref(camera_ref: str, name: str, source_url: str, floor_id: int):
     cam = one("SELECT * FROM cameras WHERE camera_ref=?", (camera_ref,))
     if cam:
         return cam
+    base_ref = re.sub(r"_s\d+$", "", str(camera_ref or ""))
+    for candidate in rows("SELECT * FROM cameras"):
+        if re.sub(r"_s\d+$", "", str(candidate.get("camera_ref") or "")) == base_ref:
+            return candidate
     # Viewer присылает stream_id (usb_..._s1), а камера уже создана по
     # camera_id/имени из состояния Viewer. Не плодим вторую запись.
     if source_url and source_url == get_viewer_url() and name:
@@ -1841,7 +1849,62 @@ def api_map_setup():
         "JOIN buildings b ON b.id=f.building_id "
         "LEFT JOIN zones z ON z.id=c.zone_id ORDER BY b.name, f.level, c.name"
     )
-    return jsonify({"buildings": buildings, "floors": floors, "cameras": cameras})
+    zones = rows(
+        "SELECT z.*, f.name AS floor_name, f.building_id AS building_id, b.name AS building_name "
+        "FROM zones z JOIN floors f ON f.id=z.floor_id JOIN buildings b ON b.id=f.building_id "
+        "ORDER BY b.name, f.level, z.name"
+    )
+    for zone in zones:
+        try:
+            zone["points"] = json.loads(zone.get("geometry_json") or "[]")
+        except ValueError:
+            zone["points"] = []
+    return jsonify({"buildings": buildings, "floors": floors, "cameras": cameras, "zones": zones})
+
+
+def _point_in_polygon(x: float, y: float, points: list) -> bool:
+    inside = False
+    j = len(points) - 1
+    for i, point in enumerate(points):
+        try:
+            xi, yi = float(point[0]), float(point[1])
+            xj, yj = float(points[j][0]), float(points[j][1])
+        except (TypeError, ValueError, IndexError):
+            j = i
+            continue
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-9) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+@app.post("/api/floors/<int:floor_id>/zones")
+@admin_required
+def api_create_zone(floor_id: int):
+    data = request.get_json(silent=True) or {}
+    name = str(data.get("name") or "").strip()
+    points = data.get("points") or []
+    if not name or not isinstance(points, list) or len(points) < 3:
+        return jsonify({"error": "нужно имя и минимум 3 точки"}), 400
+    clean = []
+    for point in points:
+        try:
+            clean.append([max(0.0, min(100.0, float(point[0]))), max(0.0, min(100.0, float(point[1])))])
+        except (TypeError, ValueError, IndexError):
+            continue
+    if len(clean) < 3:
+        return jsonify({"error": "некорректный контур"}), 400
+    if not one("SELECT * FROM floors WHERE id=?", (floor_id,)):
+        return jsonify({"error": "этаж не найден"}), 404
+    db = get_db()
+    db.execute(
+        "INSERT INTO zones (floor_id, name, geometry_json, armed, schedule_enabled, created_at) "
+        "VALUES (?, ?, ?, 0, 0, ?)",
+        (floor_id, name, json.dumps(clean), time.time()),
+    )
+    zone_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+    db.commit()
+    return jsonify({"ok": True, "zone_id": zone_id, "id": zone_id, "name": name, "points": clean})
 
 
 @app.post("/api/cameras/<int:camera_id>/place")
@@ -1858,12 +1921,30 @@ def api_place_camera(camera_id: int):
     camera = one("SELECT * FROM cameras WHERE id=?", (camera_id,))
     if not floor or not camera:
         return jsonify({"error": "камера или этаж не найдены"}), 404
+    zone_id = data.get("zone_id")
+    warning = ""
+    if zone_id:
+        try:
+            zone_id = int(zone_id)
+        except (TypeError, ValueError):
+            zone_id = None
+    if zone_id:
+        zone = one("SELECT * FROM zones WHERE id=? AND floor_id=?", (zone_id, floor_id))
+        if not zone:
+            zone_id = None
+        else:
+            try:
+                points = json.loads(zone.get("geometry_json") or "[]")
+            except ValueError:
+                points = []
+            if len(points) >= 3 and not _point_in_polygon(x, y, points):
+                warning = f"Камера вне контура зоны «{zone['name']}»."
     get_db().execute(
-        "UPDATE cameras SET floor_id=?, x=?, y=? WHERE id=?",
-        (floor_id, x, y, camera_id),
+        "UPDATE cameras SET floor_id=?, x=?, y=?, zone_id=? WHERE id=?",
+        (floor_id, x, y, zone_id, camera_id),
     )
     get_db().commit()
-    return jsonify({"ok": True, "camera_id": camera_id, "floor_id": floor_id, "x": x, "y": y})
+    return jsonify({"ok": True, "camera_id": camera_id, "floor_id": floor_id, "x": x, "y": y, "zone_id": zone_id, "warning": warning})
 
 
 @app.post("/api/cameras/<int:camera_id>/place-geo")

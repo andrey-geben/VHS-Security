@@ -52,5 +52,6 @@
 .setup-wall-layer .wall-line{stroke:#d3a85a;stroke-width:2;fill:none}
 .setup-wall-layer .wall-preview{stroke:var(--cyan);stroke-width:2;stroke-dasharray:5 4;fill:none}
 .setup-wall-layer .wall-point{fill:var(--cyan);stroke:#061018;stroke-width:2}
+.setup-wall-layer .zone-polygon{fill:rgba(73,198,212,.10);stroke:var(--cyan);stroke-width:2;stroke-dasharray:6 4}
 .setup-stage.wall-drawing{cursor:crosshair}
 @media(max-width:900px){.map-setup-layout{grid-template-columns:1fr;min-height:0}.camera-tray{max-height:300px}.setup-stage{min-height:340px;max-height:none}}

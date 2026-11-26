@@ -1,5 +1,5 @@
 (function () {
-  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null, drawMode: null, drawPoints: [] };
+  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null, drawMode: null, drawPoints: [], zones: [] };
   const $ = (selector) => document.querySelector(selector);
   const CSRF = window.CSRF_TOKEN;
 
@@ -257,16 +257,17 @@
     renderCameras();
     renderPlan();
     renderWallLayer();
+    renderZoneOptions();
   }
 
   function currentCamera(id) {
     return (state.data?.cameras || []).find((c) => String(c.id) === String(id));
   }
 
-  async function placeCamera(cameraId, floorId, x, y) {
-    await api(`/api/cameras/${cameraId}/place`, {
+  async function placeCamera(cameraId, floorId, x, y, zoneId = null) {
+    const result = await api(`/api/cameras/${cameraId}/place`, {
       method: "POST",
-      body: JSON.stringify({ floor_id: floorId, x, y }),
+      body: JSON.stringify({ floor_id: floorId, x, y, zone_id: zoneId }),
     });
     const camera = currentCamera(cameraId);
     if (camera) {
@@ -277,10 +278,13 @@
       camera.building_name = floor?.building_name || camera.building_name;
       camera.x = x;
       camera.y = y;
+      camera.zone_id = zoneId;
+      camera.zone_name = state.zones.find((z) => String(z.id) === String(zoneId))?.name || "";
     }
     renderCameras();
     renderMarkers();
     renderPlan();
+    return result;
   }
 
   async function placeCameraGeo(cameraId, floorId, lat, lon) {
@@ -334,7 +338,7 @@
       marker.classList.remove("dragging");
       const point = stagePoint(event);
       try {
-        await placeCamera(camera.id, state.floorId, point.x, point.y);
+        await placeCamera(camera.id, state.floorId, point.x, point.y, camera.zone_id || null);
         setStatus(`Камера «${camera.name}» установлена.`);
       } catch (error) {
         setStatus(`Ошибка: ${error.message}`);
@@ -375,9 +379,13 @@
       return;
     }
     const point = stagePoint(event);
+    const activeZone = $("#setupZoneSelect")?.value;
+    const zone = activeZone
+      ? state.zones.find((item) => String(item.id) === String(activeZone))
+      : zoneAtPoint(point.x, point.y);
     try {
-      await placeCamera(cameraId, state.floorId, point.x, point.y);
-      setStatus(`Камера установлена: ${point.x.toFixed(1)}%, ${point.y.toFixed(1)}%.`);
+      const result = await placeCamera(cameraId, state.floorId, point.x, point.y, zone?.id || null);
+      setStatus(result.warning || `Камера установлена: ${point.x.toFixed(1)}%, ${point.y.toFixed(1)}%.`);
     } catch (error) {
       setStatus(`Ошибка: ${error.message}`);
     }
@@ -395,6 +403,33 @@
   });
   function wallsList() {
     return selectedFloor()?.walls || [];
+  }
+
+  function renderZoneOptions() {
+    const select = $("#setupZoneSelect");
+    if (!select) return;
+    const zones = (state.zones || []).filter((z) => String(z.floor_id) === String(state.floorId));
+    select.innerHTML = '<option value="">Без зоны</option>' + zones.map((zone) =>
+      `<option value="${zone.id}">${esc(zone.name)}</option>`
+    ).join("");
+    if (zones.length === 1) select.value = String(zones[0].id);
+  }
+
+  function zoneAtPoint(x, y) {
+    for (const zone of (state.zones || []).filter((z) => String(z.floor_id) === String(state.floorId))) {
+      const points = zone.points || [];
+      if (points.length < 3) continue;
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = Number(points[i][0]), yi = Number(points[i][1]);
+        const xj = Number(points[j][0]), yj = Number(points[j][1]);
+        if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-9) + xi) {
+          inside = !inside;
+        }
+      }
+      if (inside) return zone;
+    }
+    return null;
   }
 
   function renderWallLayer() {
@@ -416,10 +451,19 @@
       line.setAttribute("class", "wall-line");
       svg.appendChild(line);
     }
+    for (const zone of (state.zones || []).filter((z) => String(z.floor_id) === String(state.floorId))) {
+      if (!zone.points || zone.points.length < 3) continue;
+      const path = document.createElementNS(ns, "path");
+      path.setAttribute("d", "M " + zone.points.map(([x, y]) =>
+        `${(Number(x) / 100) * width} ${(Number(y) / 100) * height}`
+      ).join(" L ") + " Z");
+      path.setAttribute("class", "zone-polygon");
+      svg.appendChild(path);
+    }
     if (state.drawPoints.length) {
       const points = state.drawPoints;
       const path = document.createElementNS(ns, "path");
-      path.setAttribute("d", "M " + points.map(([x, y]) => `${(x / 100) * width} ${(y / 100) * height}`).join(" L ") + (state.drawMode === "polygon" ? " Z" : ""));
+      path.setAttribute("d", "M " + points.map(([x, y]) => `${(x / 100) * width} ${(y / 100) * height}`).join(" L ") + (state.drawMode === "polygon" || state.drawMode === "zone" ? " Z" : ""));
       path.setAttribute("class", "wall-preview");
       svg.appendChild(path);
       for (const [x, y] of points) {
@@ -451,6 +495,7 @@
     $("#setupStage").classList.remove("wall-drawing");
     $("#setupWallLine").classList.remove("active");
     $("#setupWallPolygon").classList.remove("active");
+    $("#setupZoneDraw").classList.remove("active");
     renderWallLayer();
   }
 
@@ -474,6 +519,26 @@
       await saveWalls([...wallsList(), ...additions]);
       resetWallDrawing();
       setStatus("Стена-контур добавлена.");
+      return;
+    }
+    if (state.drawMode === "zone") {
+      if (state.drawPoints.length < 3) { setStatus("Нужно минимум 3 точки."); return; }
+      const name = window.prompt("Название зоны:");
+      if (!name) return;
+      try {
+        const zone = await api(`/api/floors/${state.floorId}/zones`, {
+          method: "POST",
+          body: JSON.stringify({ name, points: state.drawPoints }),
+        });
+        zone.points = state.drawPoints;
+        zone.floor_id = state.floorId;
+        state.zones.push(zone);
+        resetWallDrawing();
+        renderZoneOptions();
+        setStatus(`Зона «${name}» создана.`);
+      } catch (error) {
+        setStatus(`Ошибка зоны: ${error.message}`);
+      }
     }
   }
 
@@ -521,6 +586,15 @@
     $("#setupWallPolygon").classList.add("active");
     $("#setupStage").classList.add("wall-drawing");
     setStatus("Кликайте точки контура, затем «Завершить».");
+  });
+  $("#setupZoneDraw").addEventListener("click", () => {
+    resetWallDrawing();
+    state.drawMode = "zone";
+    $("#setupWallFinish").hidden = false;
+    $("#setupWallCancel").hidden = false;
+    $("#setupZoneDraw").classList.add("active");
+    $("#setupStage").classList.add("wall-drawing");
+    setStatus("Кликайте точки контура зоны, затем «Завершить».");
   });
   $("#setupWallFinish").addEventListener("click", finishWallDrawing);
   $("#setupWallCancel").addEventListener("click", resetWallDrawing);
@@ -585,6 +659,7 @@
   async function load() {
     try {
       state.data = await api("/api/map-setup");
+      state.zones = state.data.zones || [];
       if (!state.buildingId && state.data.buildings.length) state.buildingId = state.data.buildings[0].id;
       if (!state.floorId) {
         const first = state.data.floors.find((f) => String(f.building_id) === String(state.buildingId));

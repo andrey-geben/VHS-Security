@@ -3,11 +3,14 @@
 {% block content %}
 <style>
 .building-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
-.building-edit{display:grid;grid-template-columns:minmax(120px,1fr) minmax(120px,1fr) auto;gap:6px;align-items:center}
-.building-edit input{min-width:0}
+.building-edit,.building-add{display:flex;flex-direction:column;gap:6px;min-width:0}
+.building-main-row{display:grid;grid-template-columns:minmax(110px,1fr) minmax(110px,1fr) 105px auto;gap:6px;align-items:center}
+.building-geo-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.building-geo-row input{max-width:118px;font-size:10px;padding:4px 6px}
+.building-edit input,.building-add input{min-width:0}
 .building-row form{margin:0}
 .building-row .danger{border-color:#6b2b33;color:#ff9aa2}
-@media(max-width:760px){.building-row{grid-template-columns:1fr}.building-edit{grid-template-columns:1fr}}
+@media(max-width:760px){.building-row{grid-template-columns:1fr}.building-main-row{grid-template-columns:1fr}}
 .holiday-table-wrap{max-height:238px;overflow:auto;border:1px solid #273e4e;border-radius:6px;margin-top:10px}
 .holiday-table{width:100%;border-collapse:collapse;font-size:11px}
 .holiday-table th{position:sticky;top:0;z-index:1;background:#101c25;text-align:left;color:var(--muted);font-weight:500;font-size:9px;letter-spacing:.04em;text-transform:uppercase;padding:7px 9px;border-bottom:1px solid #2a4152}
@@ -30,16 +33,39 @@
       {% for b in buildings %}<div class="row building-row">
         <form method="post" action="{{ url_for('edit_building', building_id=b.id) }}" class="building-edit">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
-          <input name="name" value="{{ b.name }}" placeholder="Название" required>
-          <input name="address" value="{{ b.address }}" placeholder="Адрес">
-          <button class="ghost" type="submit">Сохранить</button>
+          <div class="building-main-row">
+            <input name="name" value="{{ b.name }}" placeholder="Название" required>
+            <input name="address" value="{{ b.address }}" placeholder="Адрес">
+            <select name="kind"><option value="building" {% if b.kind != 'territory' %}selected{% endif %}>Здание</option><option value="territory" {% if b.kind == 'territory' %}selected{% endif %}>Территория</option></select>
+            <button class="ghost" type="submit">Сохранить</button>
+          </div>
+          <div class="building-geo-row">
+            <input name="center_lat" value="{{ b.center_lat or 55.751244 }}" placeholder="Широта" title="Широта центра">
+            <input name="center_lon" value="{{ b.center_lon or 37.618423 }}" placeholder="Долгота" title="Долгота центра">
+            <input name="geo_zoom" type="number" min="2" max="20" value="{{ b.geo_zoom or 16 }}" title="Масштаб карты" style="max-width:72px">
+            <span class="muted">центр территории</span>
+          </div>
         </form>
         <form method="post" action="{{ url_for('delete_building', building_id=b.id) }}" onsubmit="return confirm('Удалить объект «{{ b.name }}» со всеми этажами, зонами и камерами?');">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
           <button class="ghost danger" type="submit">Удалить</button>
         </form>
       </div>{% else %}<p class="muted">Нет объектов.</p>{% endfor %}
-      <form method="post" action="{{ url_for('add_building') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input name="name" placeholder="Название" required><input name="address" placeholder="Адрес"><button class="ghost" type="submit">Добавить объект</button></form>
+      <form method="post" action="{{ url_for('add_building') }}" class="building-add">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div class="building-main-row">
+          <input name="name" placeholder="Название" required>
+          <input name="address" placeholder="Адрес">
+          <select name="kind"><option value="building">Здание</option><option value="territory">Территория</option></select>
+          <button class="ghost" type="submit">Добавить объект</button>
+        </div>
+        <div class="building-geo-row">
+          <input name="center_lat" value="55.751244" placeholder="Широта" title="Широта территории">
+          <input name="center_lon" value="37.618423" placeholder="Долгота" title="Долгота территории">
+          <input name="geo_zoom" type="number" min="2" max="20" value="16" title="Масштаб карты" style="max-width:72px">
+          <span class="muted">для территории</span>
+        </div>
+      </form>
     </section>
     <section class="card">
       <h2>Этажи</h2>

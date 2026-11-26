@@ -102,7 +102,12 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS buildings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
-    address TEXT NOT NULL DEFAULT ''
+    address TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'building',
+    center_lat REAL NOT NULL DEFAULT 0,
+    center_lon REAL NOT NULL DEFAULT 0,
+    geo_zoom INTEGER NOT NULL DEFAULT 16,
+    boundary_json TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS floors (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,6 +135,12 @@ CREATE TABLE IF NOT EXISTS cameras (
     armed INTEGER NOT NULL DEFAULT 0,
     guard_schedule_enabled INTEGER NOT NULL DEFAULT 0,
     alarm_types_json TEXT NOT NULL DEFAULT '["person","vehicle","plate"]',
+    geo_lat REAL,
+    geo_lon REAL,
+    geo_alt REAL NOT NULL DEFAULT 0,
+    geo_azimuth REAL NOT NULL DEFAULT 0,
+    geo_fov REAL NOT NULL DEFAULT 60,
+    geo_range_m REAL NOT NULL DEFAULT 80,
     enabled INTEGER NOT NULL DEFAULT 1,
     last_seen REAL,
     UNIQUE(camera_ref)
@@ -261,6 +272,16 @@ def init_db():
         db.execute("ALTER TABLE cameras ADD COLUMN alarm_types_json TEXT NOT NULL DEFAULT '[\"person\",\"vehicle\",\"plate\"]'")
     if "zone_id" not in columns:
         db.execute("ALTER TABLE cameras ADD COLUMN zone_id INTEGER REFERENCES zones(id) ON DELETE SET NULL")
+    for geo_column, definition in (
+        ("geo_lat", "REAL"),
+        ("geo_lon", "REAL"),
+        ("geo_alt", "REAL NOT NULL DEFAULT 0"),
+        ("geo_azimuth", "REAL NOT NULL DEFAULT 0"),
+        ("geo_fov", "REAL NOT NULL DEFAULT 60"),
+        ("geo_range_m", "REAL NOT NULL DEFAULT 80"),
+    ):
+        if geo_column not in columns:
+            db.execute(f"ALTER TABLE cameras ADD COLUMN {geo_column} {definition}")
     for camera in db.execute("SELECT * FROM cameras WHERE zone_id IS NULL").fetchall():
         db.execute(
             "INSERT INTO zones (floor_id, name, armed, schedule_enabled, created_at) VALUES (?, ?, ?, ?, ?)",
@@ -276,6 +297,16 @@ def init_db():
     floor_columns = {row[1] for row in db.execute("PRAGMA table_info(floors)").fetchall()}
     if "walls_json" not in floor_columns:
         db.execute("ALTER TABLE floors ADD COLUMN walls_json TEXT NOT NULL DEFAULT '[]'")
+    building_columns = {row[1] for row in db.execute("PRAGMA table_info(buildings)").fetchall()}
+    for building_column, definition in (
+        ("kind", "TEXT NOT NULL DEFAULT 'building'"),
+        ("center_lat", "REAL NOT NULL DEFAULT 0"),
+        ("center_lon", "REAL NOT NULL DEFAULT 0"),
+        ("geo_zoom", "INTEGER NOT NULL DEFAULT 16"),
+        ("boundary_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ):
+        if building_column not in building_columns:
+            db.execute(f"ALTER TABLE buildings ADD COLUMN {building_column} {definition}")
     db.commit()
     # Журнал Security наполняется только событиями Viewer.
     db.execute("DELETE FROM events WHERE source='streamer'")
@@ -1493,11 +1524,29 @@ def api_gsm_status():
 def edit_building(building_id: int):
     name = request.form.get("name", "").strip()
     address = request.form.get("address", "").strip()
+    kind = request.form.get("kind", "building")
+    if kind not in ("building", "territory"):
+        kind = "building"
+    try:
+        center_lat = float(request.form.get("center_lat") or 55.751244)
+        center_lon = float(request.form.get("center_lon") or 37.618423)
+        geo_zoom = int(request.form.get("geo_zoom") or 16)
+    except ValueError:
+        center_lat, center_lon, geo_zoom = 55.751244, 37.618423, 16
     if name:
         get_db().execute(
-            "UPDATE buildings SET name=?, address=? WHERE id=?",
-            (name, address, building_id),
+            "UPDATE buildings SET name=?, address=?, kind=?, center_lat=?, center_lon=?, geo_zoom=? WHERE id=?",
+            (name, address, kind, center_lat, center_lon, max(2, min(20, geo_zoom)), building_id),
         )
+        if kind == "territory":
+            has_floor = get_db().execute(
+                "SELECT 1 FROM floors WHERE building_id=? LIMIT 1", (building_id,)
+            ).fetchone()
+            if not has_floor:
+                get_db().execute(
+                    "INSERT INTO floors (building_id, name, level) VALUES (?, 'Территория', 0)",
+                    (building_id,),
+                )
         get_db().commit()
     return redirect(url_for("settings"))
 
@@ -1646,9 +1695,29 @@ def delete_user(user_id: int):
 def add_building():
     name = request.form.get("name", "").strip()
     address = request.form.get("address", "").strip()
+    kind = request.form.get("kind", "building")
+    if kind not in ("building", "territory"):
+        kind = "building"
+    try:
+        center_lat = float(request.form.get("center_lat") or 55.751244)
+        center_lon = float(request.form.get("center_lon") or 37.618423)
+        geo_zoom = int(request.form.get("geo_zoom") or 16)
+    except ValueError:
+        center_lat, center_lon, geo_zoom = 55.751244, 37.618423, 16
     if name:
-        get_db().execute("INSERT INTO buildings (name, address) VALUES (?, ?)", (name, address))
-        get_db().commit()
+        db = get_db()
+        db.execute(
+            "INSERT INTO buildings (name, address, kind, center_lat, center_lon, geo_zoom) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (name, address, kind, center_lat, center_lon, max(2, min(20, geo_zoom))),
+        )
+        building_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        if kind == "territory":
+            db.execute(
+                "INSERT INTO floors (building_id, name, level) VALUES (?, 'Территория', 0)",
+                (building_id,),
+            )
+        db.commit()
     return redirect(url_for("settings"))
 
 
@@ -1749,6 +1818,52 @@ def api_place_camera(camera_id: int):
     )
     get_db().commit()
     return jsonify({"ok": True, "camera_id": camera_id, "floor_id": floor_id, "x": x, "y": y})
+
+
+@app.post("/api/cameras/<int:camera_id>/place-geo")
+@admin_required
+def api_place_camera_geo(camera_id: int):
+    data = request.get_json(silent=True) or {}
+    try:
+        floor_id = int(data.get("floor_id"))
+        lat = float(data.get("lat"))
+        lon = float(data.get("lon"))
+        azimuth = float(data.get("azimuth", 0))
+        fov = float(data.get("fov", 60))
+        range_m = float(data.get("range_m", 80))
+    except (TypeError, ValueError):
+        return jsonify({"error": "floor_id, lat, lon обязательны"}), 400
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return jsonify({"error": "некорректные координаты"}), 400
+    floor = one("SELECT * FROM floors WHERE id=?", (floor_id,))
+    camera = one("SELECT * FROM cameras WHERE id=?", (camera_id,))
+    if not floor or not camera:
+        return jsonify({"error": "камера или объект не найдены"}), 404
+    get_db().execute(
+        "UPDATE cameras SET floor_id=?, geo_lat=?, geo_lon=?, geo_azimuth=?, "
+        "geo_fov=?, geo_range_m=? WHERE id=?",
+        (floor_id, lat, lon, azimuth, max(5, min(180, fov)), max(5, min(2000, range_m)), camera_id),
+    )
+    get_db().commit()
+    return jsonify({"ok": True, "camera_id": camera_id, "floor_id": floor_id, "lat": lat, "lon": lon})
+
+
+@app.post("/api/cameras/<int:camera_id>/geo-view")
+@admin_required
+def api_set_camera_geo_view(camera_id: int):
+    data = request.get_json(silent=True) or {}
+    try:
+        azimuth = float(data.get("azimuth", 0))
+        fov = float(data.get("fov", 60))
+        range_m = float(data.get("range_m", 80))
+    except (TypeError, ValueError):
+        return jsonify({"error": "некорректные параметры"}), 400
+    get_db().execute(
+        "UPDATE cameras SET geo_azimuth=?, geo_fov=?, geo_range_m=? WHERE id=?",
+        (azimuth, max(5, min(180, fov)), max(5, min(2000, range_m)), camera_id),
+    )
+    get_db().commit()
+    return jsonify({"ok": True})
 
 
 @app.route("/mosaic")

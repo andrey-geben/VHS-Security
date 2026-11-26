@@ -1,5 +1,5 @@
 (function () {
-  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null };
+  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null };
   const $ = (selector) => document.querySelector(selector);
   const CSRF = window.CSRF_TOKEN;
 
@@ -19,6 +19,14 @@
   }
 
   function setStatus(text) { $("#setupStatus").textContent = text || ""; }
+
+  function selectedBuilding() {
+    return (state.data?.buildings || []).find((b) => String(b.id) === String(state.buildingId));
+  }
+
+  function isTerritory() {
+    return selectedBuilding()?.kind === "territory";
+  }
 
   function selectedFloor() {
     return (state.data?.floors || []).find((f) => String(f.id) === String(state.floorId));
@@ -110,11 +118,115 @@
     }
   }
 
+  function geoCameras() {
+    return (state.data?.cameras || []).filter((camera) =>
+      camera.geo_lat !== null && camera.geo_lat !== undefined &&
+      camera.geo_lon !== null && camera.geo_lon !== undefined
+    );
+  }
+
+  function sectorPoints(lat, lon, azimuth, fov, range) {
+    const points = [[lat, lon]];
+    const steps = 24;
+    for (let index = 0; index <= steps; index += 1) {
+      const angle = (Number(azimuth) - Number(fov) / 2 + (Number(fov) * index) / steps) * Math.PI / 180;
+      const dLat = (Number(range) * Math.cos(angle)) / 111320;
+      const dLon = (Number(range) * Math.sin(angle)) / (111320 * Math.cos(lat * Math.PI / 180));
+      points.push([lat + dLat, lon + dLon]);
+    }
+    return points;
+  }
+
+  function initGeoMap() {
+    if (!window.L) {
+      const stage = $("#setupGeoStage");
+      if (stage && !stage.querySelector(".setup-geo-note")) {
+        stage.innerHTML = '<div class="setup-geo-note">Гео-карта не загрузилась. Проверьте доступ к библиотеке Leaflet.</div>';
+      }
+      return false;
+    }
+    const building = selectedBuilding();
+    if (!state.geoMap) {
+      state.geoMap = window.L.map("setupGeoStage", { zoomControl: true }).setView(
+        [Number(building?.center_lat) || 55.751244, Number(building?.center_lon) || 37.618423],
+        Number(building?.geo_zoom) || 16,
+      );
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "© OpenStreetMap",
+      }).addTo(state.geoMap);
+    } else {
+      state.geoMap.setView(
+        [Number(building?.center_lat) || 55.751244, Number(building?.center_lon) || 37.618423],
+        Number(building?.geo_zoom) || 16,
+      );
+    }
+    return true;
+  }
+
+  function selectGeoCamera(camera) {
+    state.geoSelected = camera;
+    const tools = $("#geoCameraTools");
+    tools.hidden = false;
+    $("#geoSelectedName").textContent = camera.name || "";
+    $("#geoAzimuth").value = Math.round(Number(camera.geo_azimuth) || 0);
+    $("#geoFov").value = Math.round(Number(camera.geo_fov) || 60);
+    $("#geoRange").value = Math.round(Number(camera.geo_range_m) || 80);
+  }
+
+  function renderGeo() {
+    if (!isTerritory()) return;
+    if (!initGeoMap()) return;
+    if (state.geoLayer) state.geoMap.removeLayer(state.geoLayer);
+    state.geoLayer = window.L.layerGroup().addTo(state.geoMap);
+    for (const camera of geoCameras()) {
+      const lat = Number(camera.geo_lat);
+      const lon = Number(camera.geo_lon);
+      const fov = Number(camera.geo_fov) || 60;
+      const range = Number(camera.geo_range_m) || 80;
+      const azimuth = Number(camera.geo_azimuth) || 0;
+      window.L.polygon(sectorPoints(lat, lon, azimuth, fov, range), {
+        color: "#49c6d4", weight: 1, fillColor: "#49c6d4", fillOpacity: 0.18,
+      }).addTo(state.geoLayer);
+      const icon = window.L.divIcon({
+        className: "",
+        html: `<div class="geo-camera-marker">${esc((camera.name || "?").slice(0, 2).toUpperCase())}</div>`,
+        iconSize: [28, 28], iconAnchor: [14, 14],
+      });
+      const marker = window.L.marker([lat, lon], { draggable: true, icon }).addTo(state.geoLayer);
+      marker.bindTooltip(camera.name || "", { direction: "top", offset: [0, -14] });
+      marker.on("click", () => selectGeoCamera(camera));
+      marker.on("dragend", async () => {
+        const position = marker.getLatLng();
+        try {
+          await placeCameraGeo(camera.id, state.floorId, position.lat, position.lng);
+          setStatus(`Камера «${camera.name}» установлена.`);
+        } catch (error) {
+          setStatus(`Ошибка: ${error.message}`);
+        }
+      });
+    }
+    setStatus(`${selectedBuilding()?.name || ""} · камер: ${geoCameras().length}`);
+  }
+
   function renderPlan() {
     const floor = selectedFloor();
     const image = $("#setupPlan");
     const empty = $("#setupEmpty");
     const link = $("#setupPlanLink");
+    if (isTerritory()) {
+      $("#setupStage").hidden = true;
+      $("#setupGeoStage").hidden = false;
+      image.hidden = true;
+      empty.hidden = true;
+      link.hidden = true;
+      renderGeo();
+      return;
+    }
+    $("#setupStage").hidden = false;
+    $("#setupGeoStage").hidden = true;
+    $("#geoCameraTools").hidden = true;
+    state.geoSelected = null;
     if (!floor) {
       image.hidden = true;
       image.removeAttribute("src");
@@ -168,6 +280,25 @@
     renderCameras();
     renderMarkers();
     renderPlan();
+  }
+
+  async function placeCameraGeo(cameraId, floorId, lat, lon) {
+    await api(`/api/cameras/${cameraId}/place-geo`, {
+      method: "POST",
+      body: JSON.stringify({ floor_id: floorId, lat, lon }),
+    });
+    const camera = currentCamera(cameraId);
+    if (camera) {
+      const floor = (state.data.floors || []).find((f) => String(f.id) === String(floorId));
+      camera.floor_id = floorId;
+      camera.floor_name = floor?.name || camera.floor_name;
+      camera.building_id = floor?.building_id || camera.building_id;
+      camera.building_name = floor?.building_name || camera.building_name;
+      camera.geo_lat = lat;
+      camera.geo_lon = lon;
+    }
+    renderCameras();
+    renderGeo();
   }
 
   function stagePoint(event) {
@@ -261,9 +392,58 @@
     renderFloorSelect();
     renderPlan();
   });
+  const geoStage = $("#setupGeoStage");
+  geoStage.addEventListener("dragover", (event) => {
+    if (!state.draggingCamera || !isTerritory()) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    geoStage.classList.add("drop-target");
+  });
+  geoStage.addEventListener("dragleave", () => geoStage.classList.remove("drop-target"));
+  geoStage.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    geoStage.classList.remove("drop-target");
+    const cameraId = event.dataTransfer.getData("text/plain") || state.draggingCamera;
+    state.draggingCamera = null;
+    if (!cameraId || !isTerritory() || !state.geoMap) return;
+    const rect = geoStage.getBoundingClientRect();
+    const point = state.geoMap.containerPointToLatLng([
+      event.clientX - rect.left,
+      event.clientY - rect.top,
+    ]);
+    try {
+      await placeCameraGeo(cameraId, state.floorId, point.lat, point.lng);
+      setStatus(`Камера установлена на территории: ${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}.`);
+    } catch (error) {
+      setStatus(`Ошибка: ${error.message}`);
+    }
+  });
+
   $("#setupFloor").addEventListener("change", (event) => {
     state.floorId = Number(event.target.value);
     renderPlan();
+  });
+
+  $("#geoSaveView").addEventListener("click", async () => {
+    if (!state.geoSelected) return;
+    const camera = state.geoSelected;
+    const azimuth = Number($("#geoAzimuth").value) || 0;
+    const fov = Number($("#geoFov").value) || 60;
+    const range = Number($("#geoRange").value) || 80;
+    try {
+      await api(`/api/cameras/${camera.id}/geo-view`, {
+        method: "POST",
+        body: JSON.stringify({ azimuth, fov, range_m: range }),
+      });
+      camera.geo_azimuth = azimuth;
+      camera.geo_fov = fov;
+      camera.geo_range_m = range;
+      renderGeo();
+      selectGeoCamera(camera);
+      setStatus(`Сектор камеры «${camera.name}» обновлён.`);
+    } catch (error) {
+      setStatus(`Ошибка: ${error.message}`);
+    }
   });
 
   async function load() {

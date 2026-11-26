@@ -660,6 +660,11 @@
     try {
       state.data = await api("/api/map-setup");
       state.zones = state.data.zones || [];
+      const params = new URLSearchParams(window.location.search);
+      const queryBuilding = Number(params.get("building_id"));
+      const queryFloor = Number(params.get("floor_id"));
+      if (queryBuilding) state.buildingId = queryBuilding;
+      if (queryFloor) state.floorId = queryFloor;
       if (!state.buildingId && state.data.buildings.length) state.buildingId = state.data.buildings[0].id;
       if (!state.floorId) {
         const first = state.data.floors.find((f) => String(f.building_id) === String(state.buildingId));

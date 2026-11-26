@@ -209,6 +209,7 @@
       <p class="muted">Камеры и потоки импортируются из VHS-Viewer. После импорта перетащите их на плане. Камеры, которых больше нет в Viewer, удаляются при следующей синхронизации.</p>
       {% for c in cameras %}<div class="row"><b>{{ c.name }}</b><span class="muted">{{ c.camera_ref }} · {{ c.floor_name }} · зона: {{ c.zone_name or 'не назначена' }}</span>
         <form method="post" action="{{ url_for('assign_camera_zone', camera_id=c.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="zone_id">{% for z in zones if z.floor_id == c.floor_id %}<option value="{{ z.id }}" {% if z.id == c.zone_id %}selected{% endif %}>{{ z.name }}</option>{% endfor %}</select><button class="ghost" type="submit">Привязать к зоне</button></form>
+        <a class="ghost" href="{{ url_for('map_setup_page') }}?building_id={{ c.building_id }}&floor_id={{ c.floor_id }}&camera_id={{ c.id }}">Настройка</a>
       </div>{% else %}<p class="muted">Камер нет.</p>{% endfor %}
     </section>
   </div>

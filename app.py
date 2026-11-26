@@ -1480,7 +1480,7 @@ def settings():
         "JOIN buildings b ON b.id=f.building_id ORDER BY b.id, f.level"
     )
     cameras = rows(
-        "SELECT c.*, f.name AS floor_name, z.name AS zone_name FROM cameras c "
+        "SELECT c.*, f.name AS floor_name, f.building_id AS building_id, z.name AS zone_name FROM cameras c "
         "JOIN floors f ON f.id=c.floor_id LEFT JOIN zones z ON z.id=c.zone_id "
         "ORDER BY c.name"
     )

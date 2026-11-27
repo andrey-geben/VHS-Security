@@ -34,8 +34,73 @@
     <div id="mosaicGroups"></div>
   </div>
 </div>
+
+<div class="mosaic-fs" id="mosaicFullscreen">
+  <div class="mosaic-fs-bar">
+    <b id="mosaicFsTitle"></b>
+    <div style="display:flex;gap:7px;align-items:center">
+      <button type="button" class="mosaic-fs-ptz" id="mosaicFsPtz" hidden>PTZ</button>
+      <button type="button" id="mosaicFsClose" title="Закрыть (Esc)">✕</button>
+    </div>
+  </div>
+  <div class="mosaic-fs-body">
+    <video id="mosaicFsVideo" autoplay muted playsinline></video>
+    <div class="mosaic-fs-error" id="mosaicFsError" hidden></div>
+    <div class="mosaic-fs-ptz-panel" id="mosaicFsPtzPanel" hidden>
+      <div class="mosaic-fs-ptz-head">
+        <b>PTZ</b>
+        <button type="button" id="mosaicFsPtzClose" title="Скрыть панель">✕</button>
+      </div>
+      <div class="mosaic-fs-ptz-grid">
+        <button type="button" data-fsptz-move="-1,1">↖</button>
+        <button type="button" data-fsptz-move="0,1">↑</button>
+        <button type="button" data-fsptz-move="1,1">↗</button>
+        <button type="button" data-fsptz-move="-1,0">←</button>
+        <button type="button" data-fsptz-home>⌂</button>
+        <button type="button" data-fsptz-move="1,0">→</button>
+        <button type="button" data-fsptz-move="-1,-1">↙</button>
+        <button type="button" data-fsptz-move="0,-1">↓</button>
+        <button type="button" data-fsptz-move="1,-1">↘</button>
+      </div>
+      <div class="mosaic-fs-ptz-zoom">
+        <button type="button" data-fsptz-zoom="1">＋</button>
+        <button type="button" data-fsptz-zoom="-1">−</button>
+      </div>
+      <button type="button" class="mosaic-fs-ptz-invert" id="mosaicFsPtzInvert">Инверсия: выкл</button>
+      <button type="button" class="mosaic-fs-ptz-stop" id="mosaicFsPtzStop">Стоп</button>
+      <div class="mosaic-fs-ptz-status" id="mosaicFsPtzStatus"></div>
+    </div>
+  </div>
+</div>
+
+<div class="mosaic-ptz-overlay" id="mosaicPtzOverlay">
+  <div class="mosaic-ptz-card">
+    <div class="mosaic-ptz-head">
+      <b id="mosaicPtzTitle">PTZ</b>
+      <button type="button" id="mosaicPtzClose">✕</button>
+    </div>
+    <div class="mosaic-ptz-grid">
+      <button type="button" data-mptz-move="-1,1">↖</button>
+      <button type="button" data-mptz-move="0,1">↑</button>
+      <button type="button" data-mptz-move="1,1">↗</button>
+      <button type="button" data-mptz-move="-1,0">←</button>
+      <button type="button" data-mptz-home>⌂</button>
+      <button type="button" data-mptz-move="1,0">→</button>
+      <button type="button" data-mptz-move="-1,-1">↙</button>
+      <button type="button" data-mptz-move="0,-1">↓</button>
+      <button type="button" data-mptz-move="1,-1">↘</button>
+    </div>
+    <div class="mosaic-ptz-zoom">
+      <button type="button" data-mptz-zoom="1">＋</button>
+      <button type="button" data-mptz-zoom="-1">−</button>
+    </div>
+    <button type="button" class="mosaic-ptz-invert" id="mosaicPtzInvert">Инверсия: выкл</button>
+    <button type="button" class="mosaic-ptz-stop" id="mosaicPtzStop">Стоп</button>
+    <div class="mosaic-ptz-status" id="mosaicPtzStatus"></div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/whep-player.js') }}"></script>
-<script src="{{ url_for('static', filename='js/mosaic.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mosaic.js') }}?v=6"></script>
 {% endblock %}

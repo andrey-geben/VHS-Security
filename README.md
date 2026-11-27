@@ -46,7 +46,12 @@ VHS-Streamer  →  VHS-Viewer  →  VHS-Security
 - `←` `↑` `↓` `→` — прокрутка плана в стороны и вверх/вниз;
 - `Alt` + ЛКМ или средняя кнопка мыши — панорамирование;
 - сектор камеры обрезается по стенам: зона за стеной не рисуется и не нагромождает карту;
-- координаты камер и стен хранятся в процентах плана, поэтому не зависят от масштаба.
+- координаты камер и стен хранятся в процентах плана, поэтому не зависят от масштаба;
+- клик по камере открывает модальное окно с видеопотоком;
+- для камер с PTZ в этом окне доступны стрелки, зум, домой, стоп и
+  инверсия осей;
+- территория открывается на онлайн-карте, с границами и уличными камерами;
+- редактирование камер, стен, зон и границ — в `/map-setup`.
 
 ---
 
@@ -77,62 +82,58 @@ Viewer берёт список камер и потоков из Streamer:
 
 ```text
 GET http://127.0.0.1:8100/api/integration/streams
-    X-API-Token: <security.api_token из config.yaml Streamer>
+    X-VHS-Key: <security.api_token из config.yaml Streamer>
+    X-VHS-Service: viewer
 ```
 
-В ответ приходят:
+В ответ приходят `camera_id`, `camera_name`, RTSP/WebRTC-путь и свежий
+авторизованный `webrtc_url`.
 
-- `camera_id`, `camera_name`;
-- RTSP/WebRTC-путь;
-- свежий авторизованный `webrtc_url`.
-
-Токен Streamer задаётся в `config.yaml`:
+Ключ Streamer задаётся в `config.yaml` и указывается в `viewer_config.yaml`:
 
 ```yaml
+# Streamer
 security:
-  api_token: CHANGE-ME
+  api_token: <ключ интеграции>
 ```
 
-И передаётся Viewer в `.env`:
-
-```env
-VHS_STREAMER_URL=http://127.0.0.1:8100
-VHS_STREAMER_API_TOKEN=CHANGE-ME
+```yaml
+# Viewer
+servers:
+  - name: local
+    url: http://127.0.0.1:8100
+    api_key: <тот же ключ>
 ```
 
 ### 2. Viewer → Security
 
-Security получает из Viewer:
-
-- камеры;
-- WebRTC-потоки;
-- события ALPR/YOLO.
+Security получает из Viewer камеры, WebRTC-потоки и события ALPR/YOLO:
 
 ```text
-GET http://127.0.0.1:8200/api/integration/state
-    X-Ingest-Token: <VHS_SECURITY_INGEST_TOKEN>
+GET  http://127.0.0.1:8200/api/integration/state
+GET  http://127.0.0.1:8200/api/integration/events
+GET  http://127.0.0.1:8200/api/integration/ptz/capabilities
+POST http://127.0.0.1:8200/api/integration/ptz/<camera_id>/<action>
+     X-VHS-Key: <integration.ingest_key Viewer>
 ```
 
-События Viewer также могут пушиться в Security:
+События Viewer пушатся в Security:
 
 ```text
 POST http://127.0.0.1:8300/api/integrations/viewer/events
-     X-Ingest-Token: <VHS_SECURITY_INGEST_TOKEN>
+     X-VHS-Key: <integration.ingest_key Viewer>
 ```
 
-Один и тот же токен задаётся в Viewer и Security:
+Ключ Viewer задаётся один раз в `viewer_config.yaml` и в настройках Security:
 
-```env
-# VHS-Viewer
-VHS_SECURITY_EVENTS_URL=http://127.0.0.1:8300/api/integrations/viewer/events
-VHS_SECURITY_INGEST_TOKEN=CHANGE-ME
+```yaml
+# Viewer
+integration:
+  ingest_key: <ключ Viewer для Security>
 ```
 
-```env
-# VHS-Security
-VIEWER_URL=http://127.0.0.1:8200
-VHS_SECURITY_INGEST_TOKEN=CHANGE-ME
-```
+В Security тот же ключ сохраняется на странице **Настройки → Интеграция VHS**
+в SQLite. Совместимые заголовки: `X-Ingest-Token`, `X-API-Token`.
 
 ### 3. Единый вход
 
@@ -235,30 +236,30 @@ notepad .env
 Минимальный `.env`:
 
 ```env
-SECRET_KEY=CHANGE-ME-LONG-RANDOM
+SECRET_KEY=<длинная случайная строка>
 VHS_SECURITY_USER=admin
-VHS_SECURITY_PASSWORD=CHANGE-ME
+VHS_SECURITY_PASSWORD=<пароль администратора>
 VHS_SECURITY_DATA=./data
 
 VIEWER_URL=http://127.0.0.1:8200
-VHS_SECURITY_INGEST_TOKEN=CHANGE-ME-INGEST
-VHS_SSO_SECRET=CHANGE-ME-SSO
+VHS_SECURITY_INGEST_TOKEN=<integration.ingest_key Viewer>
+VHS_SSO_SECRET=<общий SSO-секрет>
 ```
 
 Проверьте в Viewer:
 
 ```env
 VHS_STREAMER_URL=http://127.0.0.1:8100
-VHS_STREAMER_API_TOKEN=CHANGE-ME
+VHS_STREAMER_API_TOKEN=<security.api_token Streamer>
 VHS_SECURITY_EVENTS_URL=http://127.0.0.1:8300/api/integrations/viewer/events
-VHS_SECURITY_INGEST_TOKEN=CHANGE-ME-INGEST
+VHS_SECURITY_INGEST_TOKEN=<тот же integration.ingest_key>
 ```
 
-И в конфигурациях Streamer/Viewer:
+SSO-секрет должен совпадать во всех модулях:
 
 ```yaml
 security:
-  sso_secret: CHANGE-ME-SSO
+  sso_secret: <общий SSO-секрет>
 ```
 
 ---
@@ -422,21 +423,26 @@ Alarm engine создаёт тревогу, если:
 
 ---
 
-## Территории
+## Территории, объекты и этажи
 
-Объект может быть двух типов:
+Иерархия в базе:
 
 ```text
-Здание
-Территория
+Территория (координаты)
+  └── Объект (здание/сооружение, координаты)
+        └── Этаж (план, стены, зоны)
+              └── Камеры
 ```
 
-Территория создаётся в настройках с координатами центра. Для неё используется гео-карта, а не план этажа:
+Территория — верхний уровень. Внутри неё создаются объекты, у объектов —
+этажи с планами. Для территории используется онлайн-карта, а не картинка
+плана:
 
-- камеры перетаскиваются на карту;
+- уличные камеры перетаскиваются на карту;
 - сохраняются широта и долгота;
 - задаётся азимут, угол сектора и дальность в метрах;
-- сектор рисуется полигоном на карте.
+- граница территории рисуется по точкам;
+- клик по камере на карте открывает видео и PTZ.
 
 Гео-слой работает на Leaflet. Провайдер подложки выбирается в `.env`:
 
@@ -453,13 +459,30 @@ YANDEX_MAPS_API_KEY=ваш-ключ
 
 ## Объекты
 
-В настройках раздел **«Объекты (здания)»** позволяет:
+В настройках раздел **«Объекты на территории»** позволяет:
 
 - переименовать объект;
-- изменить адрес;
+- изменить адрес и координаты;
+- выбрать территорию;
 - удалить ошибочно созданный дубль.
 
-Удаление объекта каскадно удаляет его этажи, зоны, камеры и события. Последний объект удалить нельзя — сначала создайте новый.
+Удаление объекта каскадно удаляет его этажи, зоны, камеры и события. Последнюю территорию удалить нельзя — сначала создайте новую.
+
+---
+
+## PTZ
+
+PTZ доступен для IP-камер с ONVIF. Управление идёт по цепочке:
+
+```text
+Security → Viewer → Streamer → ONVIF
+```
+
+В Security панель есть в мозаике, полноэкранном режиме и в модальном окне
+камеры на карте. Для камер без PTZ панель не показывается.
+
+Поддерживаются движение, зум, домой, стоп и инверсия осей. Инверсия хранится
+в конфиге камеры Streamer и действует одинаково во всех клиентах.
 
 ---
 
@@ -493,6 +516,8 @@ YANDEX_MAPS_API_KEY=ваш-ключ
 | POST | `/api/cameras/<id>/place` | привязка камеры к этажу и координатам |
 | POST | `/api/cameras/<id>/place-geo` | привязка уличной камеры к территории |
 | POST | `/api/cameras/<id>/geo-view` | азимут, сектор и дальность уличной камеры |
+| GET | `/api/ptz/capabilities` | PTZ-возможности и инверсия |
+| POST | `/api/ptz/<camera_id>/<action>` | PTZ через Viewer: move/stop/home/invert |
 | GET | `/api/events?floor_id=` | журнал событий |
 | GET | `/api/alarms?status=active` | тревоги |
 | POST | `/api/sync` | синхронизация из Viewer |

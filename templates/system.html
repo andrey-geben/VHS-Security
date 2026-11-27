@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}Система — VHS-Security{% endblock %}
 {% block content %}
 <div class="settings">
@@ -11,10 +11,24 @@
       {% if module.url %}<p class="muted">{{ module.url }}</p>
         <p>{% if module.online %}<span class="dot ok"></span>онлайн{% else %}<span class="dot alarm"></span>недоступен{% endif %}</p>
         <a class="button" href="{{ module.url }}" target="_blank" rel="noopener">Открыть</a>
-      {% else %}<p class="muted">URL не задан в .env</p>{% endif %}
+      {% else %}<p class="muted">URL не указан в настройках интеграции</p>{% endif %}
     </section>
   {% endfor %}
   </div>
-  <div class="card" style="margin-top:16px"><h2>Как это связано</h2><p class="muted">Streamer отдаёт камеры и события, Viewer — номера и объекты, Security показывает карту и журнал. Единый вход пока не включён: модули открываются по ссылкам.</p></div>
+  <div class="card" style="margin-top:16px">
+    <h2>Как это связано</h2>
+    <p class="muted">Streamer отдаёт камеры и события, Viewer агрегирует один или несколько Streamer и передаёт номера/объекты, Security показывает карту и журнал.</p>
+    <table class="about-table">
+      <tr><td>1. Streamer</td><td>«Настройки → Безопасность → Ключ интеграции».</td></tr>
+      <tr><td>2. Viewer</td><td>«Настройки → Серверы VHS-Streamer»: URL + ключ каждого Streamer; «Внутренний API и ключи»: ключ Viewer для Security.</td></tr>
+      <tr><td>3. Security</td><td>«Настройки → Интеграция VHS»: Viewer URL, ключ Viewer, при необходимости Streamer URL и ключ.</td></tr>
+    </table>
+    <p class="muted" style="margin-top:8px">
+      Заголовок: <code>X-VHS-Key</code> (совместим с <code>X-Ingest-Token</code>
+      и <code>X-API-Token</code>). Проверка: <code>/api/integration/info</code>
+      у Streamer, Viewer и Security.
+    </p>
+    <p><a class="button" href="{{ url_for('settings') }}">Настроить интеграцию</a></p>
+  </div>
 </div>
 {% endblock %}

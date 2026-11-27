@@ -20,6 +20,31 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
 .plan-world .coverage,.plan-world .markers,.plan-world .event-markers{position:absolute;inset:0}
 .plan-stage.panning{cursor:grabbing}
 .guard-summary b{color:var(--green)}
+.marker{cursor:pointer}
+.camera-view-overlay{position:fixed;inset:0;z-index:70;background:rgba(2,8,12,.82);display:flex;align-items:center;justify-content:center;padding:18px}
+.camera-view-overlay[hidden]{display:none}
+.camera-view-card{width:min(980px,96vw);background:#081820;border:1px solid #2b4354;border-radius:9px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.55)}
+.camera-view-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 13px;border-bottom:1px solid #2b4354;color:#e8f5f8}
+.camera-view-head b{display:block;font-size:13px}
+.camera-view-head span{display:block;color:#8aa5b1;font-size:10px;margin-top:2px}
+.camera-view-head button{background:#6b3038;border:1px solid #9b4651;color:#ffd9dc;border-radius:4px;padding:5px 10px;cursor:pointer}
+.camera-view-body{position:relative;background:#000;min-height:260px;display:flex;align-items:center;justify-content:center}
+.camera-view-body video{width:100%;max-height:70vh;object-fit:contain;background:#000}
+.camera-view-error{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;text-align:center;color:#ffb4b4;background:rgba(8,15,20,.8);font-size:12px}
+.camera-view-ptz{position:absolute;right:12px;bottom:12px;width:230px;padding:9px;background:rgba(7,20,28,.93);border:1px solid #2b4354;border-radius:7px;z-index:3}
+.camera-view-ptz[hidden]{display:none}
+.camera-view-ptz-head{display:flex;justify-content:space-between;align-items:center;color:#dceef3;font-size:10px;margin-bottom:6px}
+.camera-view-ptz-head span{color:#7f9aa6;font-size:9px}
+.camera-view-ptz-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.camera-view-ptz-grid button,.camera-view-ptz-zoom button,.camera-view-invert,.camera-view-stop{min-height:28px;border:1px solid #2b4354;border-radius:4px;background:#102b37;color:#e8f5f8;cursor:pointer;font-size:12px}
+.camera-view-ptz-grid button:hover,.camera-view-ptz-zoom button:hover{border-color:var(--cyan);color:var(--cyan)}
+.camera-view-ptz-grid button[data-cv-home]{color:var(--cyan)}
+.camera-view-ptz-zoom{display:flex;gap:4px;margin-top:4px}
+.camera-view-ptz-zoom button{flex:1}
+.camera-view-invert,.camera-view-stop{width:100%;margin-top:4px;font-size:10px}
+.camera-view-invert.active{border-color:var(--cyan);color:var(--cyan)}
+.camera-view-stop{color:#ffb4b4;border-color:#6b3038}
+#cameraEditor{display:none!important}
 .guard-btn{width:100%;margin-top:7px;background:#1b2b24!important;border-color:#335b48!important;color:#8ee0b3!important}
 .guard-btn.disarm{background:#2a171a!important;border-color:#5d3035!important;color:#ff9aa2!important}
 .marker .camera-dot{background:#77828b;box-shadow:0 0 0 4px rgba(119,130,139,.14)}
@@ -105,6 +130,39 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
     <div class="legend"><span><i class="dot ok"></i> камера</span><span><i class="dot alarm"></i> событие</span><span><i class="dot plate"></i> номер</span></div>
   </section>
 
+  <div class="camera-view-overlay" id="cameraViewOverlay" hidden>
+    <div class="camera-view-card">
+      <div class="camera-view-head">
+        <div><b id="cameraViewName">Камера</b><span id="cameraViewMeta"></span></div>
+        <button type="button" id="cameraViewClose" title="Закрыть">✕</button>
+      </div>
+      <div class="camera-view-body">
+        <video id="cameraViewVideo" autoplay muted playsinline></video>
+        <div class="camera-view-error" id="cameraViewError" hidden></div>
+        <div class="camera-view-ptz" id="cameraViewPtz" hidden>
+          <div class="camera-view-ptz-head"><b>PTZ</b><span id="cameraViewPtzStatus"></span></div>
+          <div class="camera-view-ptz-grid">
+            <button type="button" data-cv-move="-1,1">↖</button>
+            <button type="button" data-cv-move="0,1">↑</button>
+            <button type="button" data-cv-move="1,1">↗</button>
+            <button type="button" data-cv-move="-1,0">←</button>
+            <button type="button" data-cv-home>⌂</button>
+            <button type="button" data-cv-move="1,0">→</button>
+            <button type="button" data-cv-move="-1,-1">↙</button>
+            <button type="button" data-cv-move="0,-1">↓</button>
+            <button type="button" data-cv-move="1,-1">↘</button>
+          </div>
+          <div class="camera-view-ptz-zoom">
+            <button type="button" data-cv-zoom="1">＋</button>
+            <button type="button" data-cv-zoom="-1">−</button>
+          </div>
+          <button type="button" class="camera-view-invert" id="cameraViewInvert">Инверсия: выкл</button>
+          <button type="button" class="camera-view-stop" id="cameraViewStop">Стоп</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <aside class="events-panel">
     <div class="panel-head"><div><div class="kicker">Оперативный журнал</div><h2>События</h2></div><div class="panel-tools"><span id="eventCount">0</span><button type="button" class="event-clear admin-only" id="clearEvents" title="Очистить журнал этажа">Очистить</button></div></div>
     <div class="event-filter" id="eventFilterBar" hidden><span id="eventFilterName">Камера</span><button type="button" id="clearEventFilter" title="Показать все события">×</button></div>
@@ -165,4 +223,4 @@ body[data-role="viewer"] .camera-editor input{pointer-events:none;opacity:.5}
   </div>
 </div>
 {% endblock %}
-{% block scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>window.VHS_GEO_CONFIG = { provider: {{ geo_provider|tojson }}, yandexKey: {{ yandex_key|tojson }} };</script><script src="{{ url_for('static', filename='js/whep-player.js') }}"></script><script src="{{ url_for('static', filename='js/map.js') }}"></script>{% endblock %}
+{% block scripts %}<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>window.VHS_GEO_CONFIG = { provider: {{ geo_provider|tojson }}, yandexKey: {{ yandex_key|tojson }} };</script><script src="{{ url_for('static', filename='js/whep-player.js') }}"></script><script src="{{ url_for('static', filename='js/map.js') }}?v=5"></script>{% endblock %}

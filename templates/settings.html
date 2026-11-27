@@ -24,11 +24,34 @@
 .holiday-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
 .holiday-actions form{margin:0!important;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px}
+.delete-camera{border-color:#6b2b33!important;color:#ff9aa2!important}
 .card-head h2{margin:0}
 </style>
 <div class="settings">
   <div class="toolbar"><div><div class="kicker">Конфигурация</div><h1>Объект и камеры</h1></div><a class="button" href="{{ url_for('index') }}">← На карту</a></div>
   <div class="settings-grid">
+    <section class="card wide">
+      <h2>Интеграция VHS</h2>
+      <p class="muted">Внутренний обмен с VHS-Viewer и VHS-Streamer. Ключи передаются в заголовке <code>X-VHS-Key</code>; для совместимости поддерживаются <code>X-Ingest-Token</code> и <code>X-API-Token</code>.</p>
+      <form method="post" action="{{ url_for('save_integration_settings') }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <label>Viewer URL
+            <input name="viewer_url" value="{{ integration.viewer_url }}" placeholder="http://192.168.1.20:8200">
+          </label>
+          <label>Ключ Viewer для Security
+            <input name="viewer_ingest_token" value="{{ integration.viewer_ingest_token }}" type="password" autocomplete="new-password" placeholder="X-VHS-Key Viewer">
+          </label>
+          <label>Streamer URL
+            <input name="streamer_url" value="{{ integration.streamer_url }}" placeholder="http://192.168.1.10:8100">
+          </label>
+          <label>Ключ Streamer
+            <input name="streamer_token" value="{{ integration.streamer_token }}" type="password" autocomplete="new-password" placeholder="X-VHS-Key Streamer">
+          </label>
+        </div>
+        <div style="margin-top:10px"><button class="ghost" type="submit">Сохранить интеграцию</button></div>
+      </form>
+    </section>
     <section class="card wide">
       <h2>Карты</h2>
       <p class="muted">Провайдер подложки для территорий. Для Яндекса нужен действующий API-ключ.</p>
@@ -44,51 +67,94 @@
       <p class="muted">Ключ хранится в SQLite и передаётся только в карту территорий. Без ключа используется OpenStreetMap.</p>
     </section>
     <section class="card">
-      <h2>Объекты (здания)</h2>
-      {% if request.args.get('building_error') == 'last' %}<p class="alert">Нельзя удалить единственный объект. Сначала создайте новый.</p>{% endif %}
-      {% for b in buildings %}<div class="row building-row">
-        <form method="post" action="{{ url_for('edit_building', building_id=b.id) }}" class="building-edit">
+      <h2>Территории</h2>
+      <p class="muted">Верхний уровень: территория с координатами. Внутри неё создаются объекты, у объектов — этажи и планы.</p>
+      {% if request.args.get('building_error') == 'last' %}<p class="alert">Нельзя удалить единственную территорию. Сначала создайте новую.</p>{% endif %}
+      {% for t in territories %}<div class="row building-row">
+        <form method="post" action="{{ url_for('edit_building', building_id=t.id) }}" class="building-edit">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <input type="hidden" name="kind" value="territory">
           <div class="building-main-row">
-            <input name="name" value="{{ b.name }}" placeholder="Название" required>
-            <input name="address" value="{{ b.address }}" placeholder="Адрес">
-            <select name="kind"><option value="building" {% if b.kind != 'territory' %}selected{% endif %}>Здание</option><option value="territory" {% if b.kind == 'territory' %}selected{% endif %}>Территория</option></select>
+            <input name="name" value="{{ t.name }}" placeholder="Название территории" required>
+            <input name="address" value="{{ t.address }}" placeholder="Адрес">
             <button class="ghost" type="submit">Сохранить</button>
           </div>
           <div class="building-geo-row">
-            <input name="center_lat" value="{{ b.center_lat or 55.751244 }}" placeholder="Широта" title="Широта центра">
-            <input name="center_lon" value="{{ b.center_lon or 37.618423 }}" placeholder="Долгота" title="Долгота центра">
-            <input name="geo_zoom" type="number" min="2" max="20" value="{{ b.geo_zoom or 16 }}" title="Масштаб карты" style="max-width:72px">
+            <input name="center_lat" value="{{ t.center_lat or 55.751244 }}" placeholder="Широта" title="Широта территории">
+            <input name="center_lon" value="{{ t.center_lon or 37.618423 }}" placeholder="Долгота" title="Долгота территории">
+            <input name="geo_zoom" type="number" min="2" max="20" value="{{ t.geo_zoom or 16 }}" title="Масштаб карты" style="max-width:72px">
             <span class="muted">центр территории</span>
+          </div>
+        </form>
+        <form method="post" action="{{ url_for('delete_building', building_id=t.id) }}" onsubmit="return confirm('Удалить территорию «{{ t.name }}» со всеми объектами, этажами, камерами и событиями?');">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button class="ghost danger" type="submit">Удалить</button>
+        </form>
+      </div>{% else %}<p class="muted">Территорий нет.</p>{% endfor %}
+      <form method="post" action="{{ url_for('add_building') }}" class="building-add">
+        <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="kind" value="territory">
+        <div class="building-main-row">
+          <input name="name" placeholder="Новая территория" required>
+          <input name="address" placeholder="Адрес">
+          <button class="ghost" type="submit">Добавить территорию</button>
+        </div>
+        <div class="building-geo-row">
+          <input name="center_lat" value="55.751244" placeholder="Широта" title="Широта территории">
+          <input name="center_lon" value="37.618423" placeholder="Долгота" title="Долгота территории">
+          <input name="geo_zoom" type="number" min="2" max="20" value="16" title="Масштаб карты" style="max-width:72px">
+        </div>
+      </form>
+    </section>
+    <section class="card">
+      <h2>Объекты на территории</h2>
+      <p class="muted">Объект (здание/сооружение) имеет координаты и содержит этажи с планами.</p>
+      {% for b in objects %}<div class="row building-row">
+        <form method="post" action="{{ url_for('edit_building', building_id=b.id) }}" class="building-edit">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <input type="hidden" name="kind" value="building">
+          <div class="building-main-row">
+            <input name="name" value="{{ b.name }}" placeholder="Название объекта" required>
+            <input name="address" value="{{ b.address }}" placeholder="Адрес">
+            <select name="parent_id" title="Территория">
+              {% for t in territories %}<option value="{{ t.id }}" {% if t.id == b.parent_id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}
+            </select>
+            <button class="ghost" type="submit">Сохранить</button>
+          </div>
+          <div class="building-geo-row">
+            <input name="center_lat" value="{{ b.center_lat or 55.751244 }}" placeholder="Широта" title="Широта объекта">
+            <input name="center_lon" value="{{ b.center_lon or 37.618423 }}" placeholder="Долгота" title="Долгота объекта">
+            <input name="geo_zoom" type="number" min="2" max="20" value="{{ b.geo_zoom or 16 }}" title="Масштаб карты" style="max-width:72px">
+            <span class="muted">центр объекта</span>
           </div>
         </form>
         <form method="post" action="{{ url_for('delete_building', building_id=b.id) }}" onsubmit="return confirm('Удалить объект «{{ b.name }}» со всеми этажами, зонами и камерами?');">
           <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
           <button class="ghost danger" type="submit">Удалить</button>
         </form>
-      </div>{% else %}<p class="muted">Нет объектов.</p>{% endfor %}
+      </div>{% else %}<p class="muted">Объектов нет.</p>{% endfor %}
       <form method="post" action="{{ url_for('add_building') }}" class="building-add">
         <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+        <input type="hidden" name="kind" value="building">
         <div class="building-main-row">
-          <input name="name" placeholder="Название" required>
+          <input name="name" placeholder="Новый объект" required>
           <input name="address" placeholder="Адрес">
-          <select name="kind"><option value="building">Здание</option><option value="territory">Территория</option></select>
+          <select name="parent_id">{% for t in territories %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}</select>
           <button class="ghost" type="submit">Добавить объект</button>
         </div>
         <div class="building-geo-row">
-          <input name="center_lat" value="55.751244" placeholder="Широта" title="Широта территории">
-          <input name="center_lon" value="37.618423" placeholder="Долгота" title="Долгота территории">
+          <input name="center_lat" value="55.751244" placeholder="Широта" title="Широта объекта">
+          <input name="center_lon" value="37.618423" placeholder="Долгота" title="Долгота объекта">
           <input name="geo_zoom" type="number" min="2" max="20" value="16" title="Масштаб карты" style="max-width:72px">
-          <span class="muted">для территории</span>
         </div>
       </form>
     </section>
     <section class="card">
-      <h2>Этажи</h2>
+      <h2>Этажи объектов</h2>
       {% for f in floors %}<div class="row"><b>{{ f.building_name }} · {{ f.name }}</b><span class="muted">{{ f.plan_filename or 'без плана' }}</span>
         <form method="post" action="{{ url_for('upload_plan', floor_id=f.id) }}" enctype="multipart/form-data"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><input type="file" name="plan" accept=".png,.jpg,.jpeg,.webp,.svg"><button class="ghost" type="submit">Загрузить план</button></form>
       </div>{% else %}<p class="muted">Нет этажей.</p>{% endfor %}
-      <form method="post" action="{{ url_for('add_floor') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="building_id">{% for b in buildings %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select><input name="name" placeholder="Название этажа" required><input name="level" type="number" value="1" style="max-width:90px"><button class="ghost" type="submit">Добавить этаж</button></form>
+      <form method="post" action="{{ url_for('add_floor') }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="building_id">{% for b in objects %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select><input name="name" placeholder="Название этажа" required><input name="level" type="number" value="1" style="max-width:90px"><button class="ghost" type="submit">Добавить этаж</button></form>
     </section>
     <section class="card wide">
       <h2>Пользователи</h2>
@@ -221,9 +287,19 @@
     <section class="card wide">
       <h2>Камеры</h2>
       <p class="muted">Камеры и потоки импортируются из VHS-Viewer. После импорта перетащите их на плане. Камеры, которых больше нет в Viewer, удаляются при следующей синхронизации.</p>
-      {% for c in cameras %}<div class="row"><b>{{ c.name }}</b><span class="muted">{{ c.camera_ref }} · {{ c.floor_name }} · зона: {{ c.zone_name or 'не назначена' }}</span>
+      {% for c in cameras %}<div class="row"><b>{{ c.name }}</b><span class="muted">{{ c.camera_ref }} · {{ c.floor_name }} · зона: {{ c.zone_name or 'не назначена' }} · {{ 'на плане' if c.placed else 'не размещена' }}</span>
         <form method="post" action="{{ url_for('assign_camera_zone', camera_id=c.id) }}"><input type="hidden" name="_csrf" value="{{ csrf_token() }}"><select name="zone_id">{% for z in zones if z.floor_id == c.floor_id %}<option value="{{ z.id }}" {% if z.id == c.zone_id %}selected{% endif %}>{{ z.name }}</option>{% endfor %}</select><button class="ghost" type="submit">Привязать к зоне</button></form>
         <a class="ghost" href="{{ url_for('map_setup_page') }}?building_id={{ c.building_id }}&floor_id={{ c.floor_id }}&camera_id={{ c.id }}">Настройка</a>
+        {% if c.placed %}
+        <form method="post" action="{{ url_for('unplace_camera_page', camera_id=c.id) }}" onsubmit="return confirm('Убрать камеру «{{ c.name }}» с плана этажа? Камера останется в списке и сможет быть размещена снова.');">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button class="ghost" type="submit">Убрать с плана</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{{ url_for('delete_camera_page', camera_id=c.id) }}" onsubmit="return confirm('Удалить камеру «{{ c.name }}» из Security? Если она есть в Viewer, при следующей синхронизации может появиться снова.');">
+          <input type="hidden" name="_csrf" value="{{ csrf_token() }}">
+          <button class="ghost delete-camera" type="submit">Удалить</button>
+        </form>
       </div>{% else %}<p class="muted">Камер нет.</p>{% endfor %}
     </section>
   </div>

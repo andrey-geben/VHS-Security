@@ -1,4 +1,4 @@
-﻿/* VHS-Security light theme */
+/* VHS-Security light theme */
 html[data-theme="light"] {
   --bg:#edf3f7; --panel:#ffffff; --panel2:#f4f8fa; --line:#cddbe5;
   --ink:#172838; --muted:#5d7282; --cyan:#0b7f92; --gold:#9a6700;
@@ -27,3 +27,6 @@ html[data-theme="light"] .event.unread { background:rgba(154,103,0,.08) !importa
 html[data-theme="light"] .event.selected, html[data-theme="light"] .event.active { background:rgba(11,127,146,.09) !important; }
 html[data-theme="light"] .event-clear { background:#fff0f1 !important; color:#a52f3b !important; }
 html[data-theme="light"] .theme-toggle { background:#eef4f8 !important; border-color:#c7d8e3 !important; color:var(--ink) !important; }
+
+/* Leaflet 1.9 добавляет флажок в attribution — скрываем его на всех картах. */
+.leaflet-control-attribution .leaflet-attribution-flag { display:none !important; }

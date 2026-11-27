@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS buildings (
     name TEXT NOT NULL,
     address TEXT NOT NULL DEFAULT '',
     kind TEXT NOT NULL DEFAULT 'building',
+    parent_id INTEGER REFERENCES buildings(id) ON DELETE CASCADE,
     center_lat REAL NOT NULL DEFAULT 0,
     center_lon REAL NOT NULL DEFAULT 0,
     geo_zoom INTEGER NOT NULL DEFAULT 16,
@@ -318,6 +319,7 @@ def init_db():
     building_columns = {row[1] for row in db.execute("PRAGMA table_info(buildings)").fetchall()}
     for building_column, definition in (
         ("kind", "TEXT NOT NULL DEFAULT 'building'"),
+        ("parent_id", "INTEGER"),
         ("center_lat", "REAL NOT NULL DEFAULT 0"),
         ("center_lon", "REAL NOT NULL DEFAULT 0"),
         ("geo_zoom", "INTEGER NOT NULL DEFAULT 16"),
@@ -337,6 +339,77 @@ def init_db():
             (building_id, "1 этаж", 1),
         )
         db.commit()
+    _ensure_hierarchy(db)
+
+
+def _ensure_hierarchy(db) -> None:
+    """Территория → объект → этаж. Миграция старых kind/floor без потери данных."""
+    def _all():
+        return [dict(r) for r in db.execute(
+            "SELECT id, name, kind, parent_id, center_lat, center_lon, geo_zoom "
+            "FROM buildings ORDER BY id"
+        ).fetchall()]
+
+    items = _all()
+    territories = [b for b in items if b.get("kind") == "territory"]
+    if not territories:
+        first = items[0] if items else {}
+        db.execute(
+            "INSERT INTO buildings (name, address, kind, parent_id, center_lat, center_lon, geo_zoom) "
+            "VALUES (?, '', 'territory', NULL, ?, ?, ?)",
+            (
+                "Территория",
+                first.get("center_lat") or 55.751244,
+                first.get("center_lon") or 37.618423,
+                first.get("geo_zoom") or 16,
+            ),
+        )
+        db.commit()
+        items = _all()
+        territories = [b for b in items if b.get("kind") == "territory"]
+    default_territory = territories[0]
+
+    # Объекты не могут висеть без территории.
+    for building in items:
+        if building.get("kind") != "territory" and not building.get("parent_id"):
+            db.execute(
+                "UPDATE buildings SET parent_id=? WHERE id=?",
+                (default_territory["id"], building["id"]),
+            )
+    db.commit()
+
+    # Старые этажи, висевшие на территории, переносим на объект.
+    for territory in territories:
+        floor_count = db.execute(
+            "SELECT COUNT(*) FROM floors WHERE building_id=?", (territory["id"],)
+        ).fetchone()[0]
+        if not floor_count:
+            continue
+        child = db.execute(
+            "SELECT id FROM buildings WHERE parent_id=? AND kind='building' ORDER BY id LIMIT 1",
+            (territory["id"],),
+        ).fetchone()
+        if child:
+            child_id = child[0]
+        else:
+            db.execute(
+                "INSERT INTO buildings (name, address, kind, parent_id, center_lat, center_lon, geo_zoom) "
+                "VALUES (?, ?, 'building', ?, ?, ?, ?)",
+                (
+                    f"{territory['name']} — объект",
+                    territory.get("address") or "",
+                    territory["id"],
+                    territory.get("center_lat") or 55.751244,
+                    territory.get("center_lon") or 37.618423,
+                    territory.get("geo_zoom") or 16,
+                ),
+            )
+            child_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        db.execute(
+            "UPDATE floors SET building_id=? WHERE building_id=?",
+            (child_id, territory["id"]),
+        )
+    db.commit()
 
 
 def rows(sql: str, params=()):
@@ -379,6 +452,71 @@ def set_viewer_url(url: str):
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (url,)
     )
     get_db().commit()
+
+
+def get_streamer_token() -> str:
+    return (get_app_setting("streamer_token", STREAMER_TOKEN) or "").strip()
+
+
+def get_ingest_token() -> str:
+    return (get_app_setting("viewer_ingest_token", INGEST_TOKEN) or "").strip()
+
+
+_PTZ_CACHE = {"ts": 0.0, "data": {}}
+_PTZ_TTL = 60.0
+
+
+def _viewer_ptz_headers() -> dict:
+    token = get_ingest_token()
+    return {"X-VHS-Key": token, "X-VHS-Service": "security"} if token else {}
+
+
+def get_ptz_capabilities(force: bool = False) -> dict:
+    now = time.time()
+    if not force and now - _PTZ_CACHE["ts"] < _PTZ_TTL:
+        return _PTZ_CACHE["data"]
+    base = get_viewer_url()
+    token = get_ingest_token()
+    if not base or not token:
+        return {}
+    try:
+        response = requests.get(
+            base + "/api/integration/ptz/capabilities",
+            headers=_viewer_ptz_headers(), timeout=8,
+        )
+        if not response.ok:
+            return {}
+        data = (response.json() or {}).get("cameras") or {}
+    except (requests.RequestException, ValueError):
+        return {}
+    _PTZ_CACHE["data"] = data if isinstance(data, dict) else {}
+    # Пустой ответ не держим минуту: Viewer мог быть ещё недоступен.
+    _PTZ_CACHE["ts"] = now if _PTZ_CACHE["data"] else now - _PTZ_TTL + 2
+    return _PTZ_CACHE["data"]
+
+
+def viewer_ptz_request(camera_id: str, action: str, payload: dict | None = None):
+    base = get_viewer_url()
+    token = get_ingest_token()
+    if not base or not token:
+        return 503, {"ok": False, "error": "Viewer/ключ не настроены"}
+    if action not in ("move", "stop", "home", "invert", "preset/goto", "preset/set", "preset/remove", "info"):
+        return 400, {"ok": False, "error": "неизвестное PTZ-действие"}
+    try:
+        response = requests.post(
+            f"{base}/api/integration/ptz/{camera_id}/{action}",
+            headers={**_viewer_ptz_headers(), "Content-Type": "application/json"},
+            json=payload or {}, timeout=10,
+        )
+        try:
+            body = response.json()
+        except ValueError:
+            body = {"ok": response.ok, "text": response.text[:300]}
+        if action == "invert":
+            _PTZ_CACHE["ts"] = 0
+        return response.status_code, body
+    except requests.RequestException as exc:
+        return 502, {"ok": False, "error": str(exc)}
 
 
 def _local_ip() -> str:
@@ -429,7 +567,8 @@ def discover_viewers(subnet: str | None = None):
 
 
 def _streamer_headers():
-    return {"X-API-Token": STREAMER_TOKEN} if STREAMER_TOKEN else {}
+    token = get_streamer_token()
+    return ({"X-VHS-Key": token, "X-VHS-Service": "security", "X-API-Token": token} if token else {})
 
 
 def _default_floor_id() -> int:
@@ -677,6 +816,15 @@ def _event_with_snapshot(event: dict) -> dict:
 
 def floor_payload(floor, include_events=False):
     result = dict(floor)
+    # Территория может быть отдельным уровнем объекта (level=0,
+    # «Придомовая территория»), поэтому online-карта определяется
+    # не только старым building.kind == 'territory'.
+    floor_name = str(floor.get("name") or "").lower()
+    result["is_territory"] = bool(
+        floor.get("building_kind") == "territory"
+        or "территор" in floor_name
+        or (floor.get("level") == 0 and not floor.get("plan_filename"))
+    )
     try:
         result["walls"] = json.loads(floor.get("walls_json") or "[]")
     except ValueError:
@@ -967,12 +1115,12 @@ def sync_viewer_state(floor_id: int):
     """Единственный источник камер, потоков и событий для Security — Viewer."""
     if not get_viewer_url():
         return 0, 0, 0, "VIEWER_URL не задан"
-    if not INGEST_TOKEN:
+    if not get_ingest_token():
         return 0, 0, 0, "VHS_SECURITY_INGEST_TOKEN не задан"
     try:
         response = requests.get(
             f"{get_viewer_url()}/api/integration/state",
-            headers={"X-Ingest-Token": INGEST_TOKEN}, timeout=12,
+            headers={"X-VHS-Key": get_ingest_token(), "X-VHS-Service": "security", "X-Ingest-Token": get_ingest_token()}, timeout=12,
         )
         response.raise_for_status()
         state = response.json()
@@ -1113,6 +1261,20 @@ def login_required(view):
     return wrapped
 
 
+@app.get("/api/ptz/capabilities")
+@login_required
+def api_ptz_capabilities():
+    force = request.args.get("refresh") in ("1", "true", "yes")
+    return jsonify({"cameras": get_ptz_capabilities(force)})
+
+
+@app.post("/api/ptz/<camera_id>/<path:action>")
+@admin_required
+def api_ptz_command(camera_id: str, action: str):
+    status, body = viewer_ptz_request(camera_id, action, request.get_json(silent=True) or {})
+    return jsonify(body), status
+
+
 @app.context_processor
 def _inject():
     return {
@@ -1244,12 +1406,12 @@ def api_event_snapshot(event_id: int):
     path = str(metadata.get("snapshot") or "") if isinstance(metadata, dict) else ""
     if not path:
         return jsonify({"error": "snapshot not found"}), 404
-    if not get_viewer_url() or not INGEST_TOKEN:
+    if not get_viewer_url() or not get_ingest_token():
         return jsonify({"error": "viewer not configured"}), 503
     try:
         response = requests.get(
             f"{get_viewer_url()}/api/integration/snapshot/{quote(path, safe='/')}",
-            headers={"X-Ingest-Token": INGEST_TOKEN}, timeout=10,
+            headers={"X-VHS-Key": get_ingest_token(), "X-VHS-Service": "security", "X-Ingest-Token": get_ingest_token()}, timeout=10,
         )
     except requests.RequestException as exc:
         return jsonify({"error": str(exc)}), 502
@@ -1523,6 +1685,8 @@ def api_floor_walls(floor_id: int):
 @admin_required
 def settings():
     buildings = rows("SELECT * FROM buildings ORDER BY id")
+    territories = [b for b in buildings if b.get("kind") == "territory"]
+    objects = [b for b in buildings if b.get("kind") != "territory"]
     floors = rows(
         "SELECT f.*, b.name AS building_name FROM floors f "
         "JOIN buildings b ON b.id=f.building_id ORDER BY b.id, f.level"
@@ -1545,12 +1709,45 @@ def settings():
     )
     geo_provider = get_app_setting("geo_map_provider", GEO_MAP_PROVIDER)
     yandex_key = get_app_setting("yandex_maps_api_key", YANDEX_MAPS_API_KEY)
+    integration = {
+        "viewer_url": get_viewer_url(),
+        "viewer_ingest_token": get_ingest_token(),
+        "streamer_url": get_streamer_url(),
+        "streamer_token": get_streamer_token(),
+    }
     return render_template(
-        "settings.html", buildings=buildings, floors=floors, cameras=cameras,
+        "settings.html", buildings=buildings, territories=territories, objects=objects,
+        floors=floors, cameras=cameras,
         users=users, holidays=holidays, zones=zones, notify=notify, jobs=jobs,
         current_year=time.localtime().tm_year,
         geo_provider=geo_provider, yandex_key=yandex_key,
+        integration=integration,
     )
+
+
+@app.post("/settings/integration")
+@admin_required
+def save_integration_settings():
+    """URL и ключи обмена с Viewer/Streamer без правки .env."""
+    viewer_url = (request.form.get("viewer_url") or "").strip().rstrip("/")
+    streamer_url = (request.form.get("streamer_url") or "").strip().rstrip("/")
+    viewer_key = (request.form.get("viewer_ingest_token") or "").strip()
+    streamer_key = (request.form.get("streamer_token") or "").strip()
+    if viewer_url and not viewer_url.startswith(("http://", "https://")):
+        viewer_url = "http://" + viewer_url
+    if streamer_url and not streamer_url.startswith(("http://", "https://")):
+        streamer_url = "http://" + streamer_url
+    set_viewer_url(viewer_url)
+    set_streamer_url(streamer_url)
+    db = get_db()
+    for key, value in (("viewer_ingest_token", viewer_key), ("streamer_token", streamer_key)):
+        db.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
+    db.commit()
+    return redirect(url_for("settings"))
 
 
 @app.post("/settings/notifications")
@@ -1607,20 +1804,28 @@ def edit_building(building_id: int):
     except ValueError:
         center_lat, center_lon, geo_zoom = 55.751244, 37.618423, 16
     if name:
-        get_db().execute(
-            "UPDATE buildings SET name=?, address=?, kind=?, center_lat=?, center_lon=?, geo_zoom=? WHERE id=?",
-            (name, address, kind, center_lat, center_lon, max(2, min(20, geo_zoom)), building_id),
-        )
+        db = get_db()
+        parent_id = request.form.get("parent_id", type=int)
         if kind == "territory":
-            has_floor = get_db().execute(
-                "SELECT 1 FROM floors WHERE building_id=? LIMIT 1", (building_id,)
+            parent_id = None
+        elif not parent_id:
+            row = db.execute(
+                "SELECT id FROM buildings WHERE kind='territory' ORDER BY id LIMIT 1"
             ).fetchone()
-            if not has_floor:
-                get_db().execute(
-                    "INSERT INTO floors (building_id, name, level) VALUES (?, 'Территория', 0)",
-                    (building_id,),
-                )
-        get_db().commit()
+            parent_id = row[0] if row else None
+        else:
+            valid = db.execute(
+                "SELECT 1 FROM buildings WHERE id=? AND kind='territory'", (parent_id,)
+            ).fetchone()
+            if not valid:
+                parent_id = None
+        db.execute(
+            "UPDATE buildings SET name=?, address=?, kind=?, parent_id=?, "
+            "center_lat=?, center_lon=?, geo_zoom=? WHERE id=?",
+            (name, address, kind, parent_id, center_lat, center_lon,
+             max(2, min(20, geo_zoom)), building_id),
+        )
+        db.commit()
     return redirect(url_for("settings"))
 
 
@@ -1657,6 +1862,22 @@ def assign_camera_zone(camera_id: int):
     if zone_id:
         get_db().execute("UPDATE cameras SET zone_id=? WHERE id=?", (zone_id, camera_id))
         get_db().commit()
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/cameras/<int:camera_id>/unplace")
+@admin_required
+def unplace_camera_page(camera_id: int):
+    get_db().execute("UPDATE cameras SET placed=0 WHERE id=?", (camera_id,))
+    get_db().commit()
+    return redirect(url_for("settings"))
+
+
+@app.post("/settings/cameras/<int:camera_id>/delete")
+@admin_required
+def delete_camera_page(camera_id: int):
+    get_db().execute("DELETE FROM cameras WHERE id=?", (camera_id,))
+    get_db().commit()
     return redirect(url_for("settings"))
 
 
@@ -1779,17 +2000,26 @@ def add_building():
         center_lat, center_lon, geo_zoom = 55.751244, 37.618423, 16
     if name:
         db = get_db()
-        db.execute(
-            "INSERT INTO buildings (name, address, kind, center_lat, center_lon, geo_zoom) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (name, address, kind, center_lat, center_lon, max(2, min(20, geo_zoom))),
-        )
-        building_id = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        parent_id = request.form.get("parent_id", type=int)
         if kind == "territory":
-            db.execute(
-                "INSERT INTO floors (building_id, name, level) VALUES (?, 'Территория', 0)",
-                (building_id,),
-            )
+            parent_id = None
+        elif not parent_id:
+            row = db.execute(
+                "SELECT id FROM buildings WHERE kind='territory' ORDER BY id LIMIT 1"
+            ).fetchone()
+            parent_id = row[0] if row else None
+        else:
+            valid = db.execute(
+                "SELECT 1 FROM buildings WHERE id=? AND kind='territory'", (parent_id,)
+            ).fetchone()
+            if not valid:
+                parent_id = None
+        db.execute(
+            "INSERT INTO buildings (name, address, kind, parent_id, center_lat, center_lon, geo_zoom) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (name, address, kind, parent_id, center_lat, center_lon,
+             max(2, min(20, geo_zoom))),
+        )
         db.commit()
     return redirect(url_for("settings"))
 
@@ -1801,11 +2031,16 @@ def add_floor():
     name = request.form.get("name", "").strip()
     level = request.form.get("level", type=int) or 1
     if building_id and name:
-        get_db().execute(
-            "INSERT INTO floors (building_id, name, level) VALUES (?, ?, ?)",
-            (building_id, name, level),
-        )
-        get_db().commit()
+        db = get_db()
+        obj = db.execute(
+            "SELECT id FROM buildings WHERE id=? AND kind='building'", (building_id,)
+        ).fetchone()
+        if obj:
+            db.execute(
+                "INSERT INTO floors (building_id, name, level) VALUES (?, ?, ?)",
+                (building_id, name, level),
+            )
+            db.commit()
     return redirect(url_for("settings"))
 
 
@@ -1840,12 +2075,12 @@ def ensure_viewer_stream_urls():
     empty = db.execute(
         "SELECT COUNT(*) AS n FROM cameras WHERE stream_url IS NULL OR stream_url=''"
     ).fetchone()["n"]
-    if not empty or not get_viewer_url() or not INGEST_TOKEN:
+    if not empty or not get_viewer_url() or not get_ingest_token():
         return
     try:
         response = requests.get(
             f"{get_viewer_url()}/api/integration/state",
-            headers={"X-Ingest-Token": INGEST_TOKEN}, timeout=8,
+            headers={"X-VHS-Key": get_ingest_token(), "X-VHS-Service": "security", "X-Ingest-Token": get_ingest_token()}, timeout=8,
         )
         response.raise_for_status()
         for item in response.json().get("cameras", []):
@@ -2112,7 +2347,7 @@ def api_place_camera_geo(camera_id: int):
         return jsonify({"error": "камера или объект не найдены"}), 404
     get_db().execute(
         "UPDATE cameras SET floor_id=?, geo_lat=?, geo_lon=?, geo_azimuth=?, "
-        "geo_fov=?, geo_range_m=? WHERE id=?",
+        "geo_fov=?, geo_range_m=?, placed=1 WHERE id=?",
         (floor_id, lat, lon, azimuth, max(5, min(180, fov)), max(5, min(2000, range_m)), camera_id),
     )
     get_db().commit()
@@ -2231,10 +2466,10 @@ def _ingest_viewer_event(ev: dict, floor_id: int | None = None):
 @app.post("/api/integrations/viewer/events")
 def viewer_event_ingest():
     """Приём событий от VHS-Viewer (machine-to-machine, X-Ingest-Token)."""
-    if not INGEST_TOKEN:
+    if not get_ingest_token():
         return jsonify({"error": "ingest disabled"}), 503
-    token = request.headers.get("X-Ingest-Token", "")
-    if not hmac.compare_digest(token, INGEST_TOKEN):
+    token = (request.headers.get("X-VHS-Key") or request.headers.get("X-Ingest-Token") or "")
+    if not hmac.compare_digest(token, get_ingest_token()):
         return jsonify({"error": "unauthorized"}), 401
     payload = request.get_json(silent=True) or {}
     events = payload if isinstance(payload, list) else payload.get("events", [payload])
@@ -2259,7 +2494,9 @@ def integration_info():
         "app": "VHS-Security",
         "version": __version__,
         "role": "security",
+        "auth": {"header": "X-VHS-Key", "aliases": ["X-Ingest-Token"]},
         "capabilities": ["map", "events", "alpr", "ack"],
+        "endpoints": {"viewer_events": "/api/integrations/viewer/events"},
     })
 
 
@@ -2315,4 +2552,6 @@ if __name__ == "__main__":
         port=int(os.environ.get("VHS_SECURITY_PORT", "8300")),
         debug=os.environ.get("VHS_SECURITY_DEBUG", "0") == "1",
     )
+
+
 

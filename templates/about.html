@@ -1,4 +1,4 @@
-﻿{% extends "base.html" %}
+{% extends "base.html" %}
 {% block title %}О программе — VHS-Security{% endblock %}
 {% block content %}
 <div class="settings" style="max-width:720px">
@@ -13,6 +13,29 @@
       <tr><td>Сайт</td><td><a href="{{ url }}" target="_blank" rel="noopener">{{ url }}</a></td></tr>
     </table>
     <p class="muted" style="margin-top:18px;line-height:1.6">VHS-Security — слой охраны поверх VHS-Streamer и VHS-Viewer: карта объекта, камеры, зоны обзора, события и тревоги.</p>
+  </section>
+
+  <section class="card" style="margin-top:16px">
+    <h2>Связка модулей VHS</h2>
+    <p class="muted">
+      Streamer отдаёт камеры и видеопотоки. Viewer агрегирует один или несколько
+      Streamer, выполняет аналитику и передаёт камеры/события в Security.
+      Security показывает объект, тревоги и снимки.
+    </p>
+    <table class="about-table">
+      <tr><td>Streamer</td><td>Настройки → Безопасность → «Ключ интеграции». Этот ключ нужен Viewer и Security для <code>/api/integration/streams</code>.</td></tr>
+      <tr><td>Viewer</td><td>Настройки → «Серверы VHS-Streamer»: URL и ключ каждого Streamer. Несколько записей = несколько Streamer.</td></tr>
+      <tr><td>Viewer</td><td>Настройки → «Внутренний API и ключи»: ключ Viewer для Security.</td></tr>
+      <tr><td>Security</td><td>Настройки → «Интеграция VHS»: Viewer URL, ключ Viewer, Streamer URL и ключ Streamer.</td></tr>
+    </table>
+    <p class="muted" style="margin-top:10px">
+      Единый заголовок — <code>X-VHS-Key</code>; поддержаны
+      <code>X-Ingest-Token</code> и <code>X-API-Token</code>. Security читает
+      <code>/api/integration/state</code>, <code>/api/integration/events</code>
+      и снимки Viewer. Проверка: <code>/api/integration/info</code> у каждого модуля.
+      Порты не публикуйте в интернет — используйте WireGuard/VPN.
+    </p>
+    <p><a class="button" href="{{ url_for('settings') }}">Открыть настройки интеграции</a></p>
   </section>
 </div>
 {% endblock %}

@@ -8,7 +8,7 @@
     <div>
       <div class="kicker">Администрирование</div>
       <h1>Настройка карт</h1>
-      <p class="muted">Выберите объект и этаж, затем перетащите камеру на план.</p>
+      <p class="muted">Выберите территорию — для неё откроется онлайн-карта, границы и уличные камеры. Для объекта выберите этаж и перетащите камеру на план.</p>
     </div>
     <div class="map-setup-actions">
       <button type="button" class="primary" id="setupSaveMap">Сохранить карту</button>
@@ -25,13 +25,13 @@
         <span id="setupCameraCount" class="tray-count">0</span>
       </div>
       <input type="search" id="setupCameraSearch" placeholder="Поиск камеры…" autocomplete="off">
-      <p class="tray-hint">Перетащите карточку камеры на план справа. Камера будет привязана к выбранному объекту и этажу.</p>
+      <p class="tray-hint">Камеры из Viewer появляются здесь как «Не размещены». Перетащите карточку на план этажа или на онлайн-карту территории — камера привяжется к выбранному объекту, этажу или территории.</p>
       <div class="tray-list" id="setupCameras"></div>
     </aside>
 
     <section class="setup-map-panel">
       <div class="setup-toolbar">
-        <label>Объект
+        <label>Территория / объект
           <select id="setupBuilding"></select>
         </label>
         <label>Этаж
@@ -51,7 +51,7 @@
       </div>
       <div class="setup-geo-stage" id="setupGeoStage" hidden></div>
       <div class="geo-building-tools" id="geoBuildingTools" hidden>
-        <button type="button" class="ghost" id="geoFootprintDraw">Контур здания</button>
+        <button type="button" class="ghost" id="geoFootprintDraw">Граница территории / контур</button>
         <button type="button" class="ghost" id="geoFootprintFinish" hidden>Завершить</button>
         <button type="button" class="ghost" id="geoFootprintCancel" hidden>Отмена</button>
         <span class="muted">Кликайте по карте контур здания, затем «Завершить».</span>

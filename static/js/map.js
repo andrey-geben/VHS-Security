@@ -42,7 +42,8 @@ function renderFloors() {
   const select = $("#floorSelect");
   const buildingSelect = $("#buildingSelect");
   const plans = $("#plansList");
-  const buildings = state.data.buildings || [];
+  // Верхний уровень — территория; на карте выбираются только объекты.
+  const buildings = (state.data.buildings || []).filter((b) => b.kind !== "territory");
   const currentFloor = state.data.floors.find((f) => String(f.id) === String(state.floorId));
   if (!state.buildingId && currentFloor) state.buildingId = currentFloor.building_id;
   if (!buildings.some((b) => String(b.id) === String(state.buildingId)) && buildings.length) {
@@ -67,11 +68,14 @@ function renderFloors() {
   select.value = String(state.floorId);
 
   const floors = state.data.floors.filter((f) => String(f.building_id) === String(state.buildingId));
-  plans.innerHTML = floors.length ? floors.map((floor) => `
+  plans.innerHTML = floors.length ? floors.map((floor) => {
+    const territory = Number(floor.level) === 0 && String(floor.name || "").toLowerCase().includes("территор");
+    return `
     <button type="button" class="plan-link${String(floor.id) === String(state.floorId) ? " active" : ""}" data-floor-id="${floor.id}">
       <span>${esc(floor.name)}</span>
-      <small class="${floor.plan_filename ? "" : "no-plan"}">${floor.plan_filename ? "план" : "нет плана"}</small>
-    </button>`).join("") : '<p class="muted">Нет этажей.</p>';
+      <small class="${territory || floor.plan_filename ? "" : "no-plan"}">${territory ? "онлайн" : (floor.plan_filename ? "план" : "нет плана")}</small>
+    </button>`;
+  }).join("") : '<p class="muted">Нет этажей.</p>';
   plans.querySelectorAll("[data-floor-id]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedId = null;
@@ -126,12 +130,14 @@ function renderMainGeo() {
         lon2 + range * Math.sin(a) / (111320 * Math.cos(lat2 * Math.PI / 180)),
       ]);
     }
-    window.L.polygon(points, {
+    const sector = window.L.polygon(points, {
       color: "#49c6d4", weight: 1, fillColor: "#49c6d4", fillOpacity: 0.18,
     }).addTo(state.mainGeoLayer);
-    window.L.circleMarker([lat2, lon2], {
+    const marker = window.L.circleMarker([lat2, lon2], {
       radius: 6, color: "#e6ffff", weight: 2, fillColor: "#49c6d4", fillOpacity: 1,
     }).bindTooltip(camera.name || "", { direction: "top" }).addTo(state.mainGeoLayer);
+    marker.on("click", () => openCameraView(camera));
+    sector.on("click", () => openCameraView(camera));
   }
   setTimeout(() => state.mainGeoMap.invalidateSize(), 50);
 }
@@ -142,7 +148,7 @@ function renderPlan() {
   const empty = $("#emptyPlan");
   const geo = $("#mainGeoMap");
   const world = $("#planWorld");
-  if (floor.building_kind === "territory") {
+  if (floor.is_territory || floor.building_kind === "territory") {
     image.hidden = true;
     empty.hidden = true;
     world.hidden = true;
@@ -365,21 +371,17 @@ function renderMarkers() {
     const cutoff = Date.now() / 1000 - 15 * 60;
     const effectivelyArmed = cam.effective_armed ?? cam.armed;
     const unread = effectivelyArmed ? (state.data.floor.events || []).filter((e) => Number(e.camera_id) === Number(cam.id) && Number(e.ts) >= cutoff).length : 0;
-    marker.innerHTML = `<span class="camera-dot"></span><span class="camera-label">${esc(cam.name)}</span>${unread ? `<button type="button" class="camera-events" data-camera-events="${cam.id}" title="События на охране: ${unread}">${unread}</button>` : ""}<button type="button" class="rotate-handle" title="Повернуть камеру"></button>`;
+    marker.innerHTML = `<span class="camera-dot"></span><span class="camera-label">${esc(cam.name)}</span>${unread ? `<button type="button" class="camera-events" data-camera-events="${cam.id}" title="События на охране: ${unread}">${unread}</button>` : ""}`;
     setMarkerGeometry(marker, cam);
     const badge = marker.querySelector(".camera-events");
     if (badge) badge.addEventListener("click", (event) => { event.stopPropagation(); openCameraJournal(cam.id); });
     marker.addEventListener("click", (event) => {
-      if (state.wallMode) return;
-      if (event.target.closest(".rotate-handle")) return;
-      if (marker.dataset.dragged === "1") { marker.dataset.dragged = "0"; return; }
-      selectCamera(cam);
+      if (event.target.closest(".camera-events")) return;
+      openCameraView(cam);
     });
     marker.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectCamera(cam); }
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openCameraView(cam); }
     });
-    bindDrag(marker, cam);
-    bindRotate(marker, cam);
     layer.appendChild(marker);
   }
   const zoneRows = state.data.floor.zones || [];
@@ -388,12 +390,7 @@ function renderMarkers() {
   const alarms = (state.data.floor.alarms || []).length;
   $("#guardSummary").textContent = `Зон на охране: ${armedCount}/${totalCount} · тревог: ${alarms}`;
   renderCoverage();
-  const selected = currentCamera();
-  if (selected) {
-    selectCamera(selected, true);
-  } else {
-    hideEditor();
-  }
+  hideEditor();
 }
 
 let previewPlayer = null;
@@ -450,10 +447,109 @@ function updateEditorLabels(cam) {
 
 function hideEditor() {
   closePreview();
-  $("#cameraEditor").hidden = true;
-  $("#ceDead").hidden = true;
+  const editor = $("#cameraEditor");
+  if (editor) editor.hidden = true;
+  const dead = $("#ceDead");
+  if (dead) dead.hidden = true;
   state.selectedId = null;
   document.querySelectorAll(".marker.selected").forEach((node) => node.classList.remove("selected"));
+}
+
+// ---------------------------------------------------------------------
+// Просмотр камеры с карты: видео + PTZ в модальном окне.
+// ---------------------------------------------------------------------
+let cameraViewPlayer = null;
+let cameraViewCamera = null;
+let cameraViewCaps = {};
+let cameraViewCap = null;
+
+function setCameraViewStatus(text) {
+  const el = $("#cameraViewPtzStatus");
+  if (el) el.textContent = text || "";
+}
+
+function updateCameraViewInvert() {
+  const btn = $("#cameraViewInvert");
+  if (!btn) return;
+  const on = !!(cameraViewCap && cameraViewCap.invert);
+  btn.classList.toggle("active", on);
+  btn.textContent = "Инверсия: " + (on ? "вкл" : "выкл");
+}
+
+function closeCameraView() {
+  if (cameraViewPlayer) {
+    try { cameraViewPlayer.close(); } catch (e) {}
+    cameraViewPlayer = null;
+  }
+  const video = $("#cameraViewVideo");
+  if (video) video.srcObject = null;
+  const overlay = $("#cameraViewOverlay");
+  if (overlay) overlay.hidden = true;
+  cameraViewCamera = null;
+  cameraViewCap = null;
+}
+
+async function openCameraView(cam) {
+  const overlay = $("#cameraViewOverlay");
+  const video = $("#cameraViewVideo");
+  const error = $("#cameraViewError");
+  const ptz = $("#cameraViewPtz");
+  if (!overlay || !video || !error) return;
+  closeCameraView();
+  cameraViewCamera = cam;
+  cameraViewCap = null;
+  $("#cameraViewName").textContent = cam.name || "Камера";
+  $("#cameraViewMeta").textContent = [cam.building_name, cam.floor_name, cam.zone_name].filter(Boolean).join(" · ");
+  error.hidden = true;
+  error.textContent = "";
+  if (ptz) ptz.hidden = true;
+  setCameraViewStatus("");
+  overlay.hidden = false;
+
+  try {
+    const response = await fetch("/api/ptz/capabilities?refresh=1", { headers: { Accept: "application/json" } });
+    if (response.ok) {
+      const data = await response.json();
+      cameraViewCaps = data.cameras || {};
+      cameraViewCap = cameraViewCaps[String(cam.camera_ref || cam.id)] || null;
+    }
+  } catch (e) { cameraViewCaps = {}; }
+  if (cameraViewCap && ptz) {
+    ptz.hidden = false;
+    updateCameraViewInvert();
+  }
+
+  if (!cam.stream_url || !window.VHSWhep) {
+    error.hidden = false;
+    error.textContent = cam.stream_url ? "WHEP-клиент не загружен" : "Для камеры не назначен поток";
+    return;
+  }
+  try {
+    cameraViewPlayer = await window.VHSWhep.connect(video, cam.stream_url, {
+      onState(state) { if (state === "playing") error.hidden = true; },
+    });
+  } catch (exc) {
+    error.hidden = false;
+    error.textContent = "Поток недоступен: " + exc.message;
+  }
+}
+
+async function sendCameraViewPtz(action, payload) {
+  if (!cameraViewCamera) return;
+  const id = String(cameraViewCamera.camera_ref || cameraViewCamera.id);
+  setCameraViewStatus("команда...");
+  try {
+    const response = await fetch(`/api/ptz/${encodeURIComponent(id)}/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": window.CSRF_TOKEN || "" },
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || ("HTTP " + response.status));
+    setCameraViewStatus("выполнено");
+  } catch (exc) {
+    setCameraViewStatus("ошибка: " + exc.message);
+  }
 }
 
 function syncSelectedMarker(cam) {
@@ -1040,6 +1136,36 @@ $("#eventList").addEventListener("scroll", () => {
 $("#syncBtn").addEventListener("click", syncNow);
 $("#planImage").addEventListener("load", renderCoverage);
 window.addEventListener("resize", renderCoverage);
+document.getElementById("cameraViewClose")?.addEventListener("click", closeCameraView);
+document.getElementById("cameraViewOverlay")?.addEventListener("click", (event) => {
+  if (event.target.id === "cameraViewOverlay") closeCameraView();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !document.getElementById("cameraViewOverlay")?.hidden) closeCameraView();
+});
+document.querySelectorAll("[data-cv-move]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const [x, y] = String(button.dataset.cvMove || "0,0").split(",").map(Number);
+    sendCameraViewPtz("move", { pan: x, tilt: -y, zoom: 0, duration: 0.35 });
+  });
+});
+document.querySelectorAll("[data-cv-zoom]").forEach((button) => {
+  button.addEventListener("click", () => sendCameraViewPtz("move", {
+    pan: 0, tilt: 0, zoom: Number(button.dataset.cvZoom || 0), duration: 0.35,
+  }));
+});
+document.querySelectorAll("[data-cv-home]").forEach((button) => {
+  button.addEventListener("click", () => sendCameraViewPtz("home", {}));
+});
+document.getElementById("cameraViewStop")?.addEventListener("click", () => sendCameraViewPtz("stop", {}));
+document.getElementById("cameraViewInvert")?.addEventListener("click", async () => {
+  if (!cameraViewCap) return;
+  const next = !cameraViewCap.invert;
+  await sendCameraViewPtz("invert", { invert: next });
+  cameraViewCap.invert = next;
+  updateCameraViewInvert();
+});
+
 loadState();
 setInterval(() => {
   if (!document.querySelector(".marker.dragging, .marker.rotating")) loadState(state.floorId);

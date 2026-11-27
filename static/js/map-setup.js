@@ -33,21 +33,42 @@
   }
 
   function floorsForBuilding() {
+    if (isTerritory()) {
+      const floor = territoryFloor();
+      return floor ? [floor] : [];
+    }
     return (state.data?.floors || []).filter((f) => String(f.building_id) === String(state.buildingId));
+  }
+
+  function objectBuildings() {
+    return (state.data?.buildings || []).filter((b) => b.kind !== "territory");
+  }
+
+  function setupBuildings() {
+    const all = state.data?.buildings || [];
+    return [...all.filter((b) => b.kind === "territory"), ...all.filter((b) => b.kind !== "territory")];
+  }
+
+  function territoryFloor() {
+    const floors = state.data?.floors || [];
+    return floors.find((f) => Number(f.level) === 0 && /территор/i.test(String(f.name || "")))
+      || floors.find((f) => Number(f.level) === 0)
+      || null;
   }
 
   function renderBuildingSelect() {
     const select = $("#setupBuilding");
-    select.innerHTML = (state.data?.buildings || []).map((b) =>
-      `<option value="${b.id}">${esc(b.name)}</option>`
+    const buildings = setupBuildings();
+    select.innerHTML = buildings.map((b) =>
+      `<option value="${b.id}">${b.kind === "territory" ? "Территория · " : "Объект · "}${esc(b.name)}</option>`
     ).join("");
-    if (!state.data?.buildings?.length) {
-      select.innerHTML = '<option value="">Нет объектов</option>';
+    if (!buildings.length) {
+      select.innerHTML = '<option value="">Нет территорий и объектов</option>';
       state.buildingId = null;
       return;
     }
-    if (!state.data.buildings.some((b) => String(b.id) === String(state.buildingId))) {
-      state.buildingId = state.data.buildings[0].id;
+    if (!buildings.some((b) => String(b.id) === String(state.buildingId))) {
+      state.buildingId = buildings[0].id;
     }
     select.value = String(state.buildingId);
   }
@@ -56,7 +77,7 @@
     const select = $("#setupFloor");
     const floors = floorsForBuilding();
     select.innerHTML = floors.map((f) =>
-      `<option value="${f.id}">${esc(f.name)}${f.plan_filename ? "" : " · без плана"}</option>`
+      `<option value="${f.id}">${esc(f.name)}${isTerritory() ? " · онлайн-карта" : (f.plan_filename ? "" : " · без плана")}</option>`
     ).join("");
     if (!floors.length) {
       select.innerHTML = '<option value="">Нет этажей</option>';
@@ -69,8 +90,11 @@
     select.value = String(state.floorId);
   }
 
-  function camerasForSelectedFloor() {
-    return (state.data?.cameras || []).filter((c) => String(c.floor_id) === String(state.floorId));
+  function camerasForSelectedFloor(placedOnly = false) {
+    return (state.data?.cameras || []).filter((c) =>
+      String(c.floor_id) === String(state.floorId) &&
+      (!placedOnly || Number(c.placed) === 1)
+    );
   }
 
   function renderCameras() {
@@ -81,14 +105,20 @@
       return `${camera.name} ${camera.camera_ref} ${camera.building_name} ${camera.floor_name} ${camera.zone_name || ""}`
         .toLowerCase().includes(query);
     });
-    $("#setupCameraCount").textContent = String(cameras.length);
+    cameras.sort((a, b) =>
+      (Number(a.placed) === 1 ? 1 : 0) - (Number(b.placed) === 1 ? 1 : 0) ||
+      String(a.name || "").localeCompare(String(b.name || ""), "ru")
+    );
+    const unplaced = cameras.filter((c) => Number(c.placed) !== 1).length;
+    $("#setupCameraCount").textContent = `${unplaced} / ${cameras.length}`;
     if (!cameras.length) {
       root.innerHTML = '<p class="muted">Камеры не найдены.</p>';
       return;
     }
     const groups = new Map();
     for (const camera of cameras) {
-      const key = `${camera.building_name || "Без объекта"} · ${camera.floor_name || "Без этажа"}`;
+      const stateLabel = Number(camera.placed) === 1 ? "На плане" : "Не размещены";
+      const key = `${stateLabel} · ${camera.building_name || "Без объекта"} · ${camera.floor_name || "Без этажа"}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(camera);
     }
@@ -110,7 +140,7 @@
     const layer = $("#setupMarkers");
     layer.innerHTML = "";
     if (!state.data || !state.floorId) return;
-    for (const camera of camerasForSelectedFloor()) {
+    for (const camera of camerasForSelectedFloor(true)) {
       const marker = document.createElement("div");
       marker.className = "setup-marker";
       marker.dataset.cameraId = camera.id;
@@ -309,7 +339,7 @@
       image.hidden = false;
       empty.hidden = true;
       link.hidden = true;
-      setStatus(`${floor.building_name} · ${floor.name} · камер: ${camerasForSelectedFloor().length}`);
+      setStatus(`${floor.building_name} · ${floor.name} · камер на плане: ${camerasForSelectedFloor(true).length}`);
     } else {
       image.hidden = true;
       image.removeAttribute("src");
@@ -370,6 +400,7 @@
       camera.building_name = floor?.building_name || camera.building_name;
       camera.geo_lat = lat;
       camera.geo_lon = lon;
+      camera.placed = 1;
     }
     renderCameras();
     renderGeo();
@@ -738,7 +769,7 @@
       setStatus("Нужно минимум 3 точки контура.");
       return;
     }
-    const name = window.prompt("Название здания:");
+    const name = window.prompt(isTerritory() ? "Название границы территории:" : "Название здания:");
     if (!name) return;
     try {
       const footprint = await api(`/api/buildings/${state.buildingId}/footprints`, {
@@ -803,7 +834,7 @@
       const queryFloor = Number(params.get("floor_id"));
       if (queryBuilding) state.buildingId = queryBuilding;
       if (queryFloor) state.floorId = queryFloor;
-      if (!state.buildingId && state.data.buildings.length) state.buildingId = state.data.buildings[0].id;
+      if (!state.buildingId && setupBuildings().length) state.buildingId = setupBuildings()[0].id;
       if (!state.floorId) {
         const first = state.data.floors.find((f) => String(f.building_id) === String(state.buildingId));
         if (first) state.floorId = first.id;

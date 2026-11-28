@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Настройка карт — VHS-Security{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', filename='css/map-setup.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/map-setup.css') }}?v=3">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <div class="map-setup-page">
   <div class="map-setup-head">
@@ -25,7 +25,7 @@
         <span id="setupCameraCount" class="tray-count">0</span>
       </div>
       <input type="search" id="setupCameraSearch" placeholder="Поиск камеры…" autocomplete="off">
-      <p class="tray-hint">Камеры из Viewer появляются здесь как «Не размещены». Перетащите карточку на план этажа или на онлайн-карту территории — камера привяжется к выбранному объекту, этажу или территории.</p>
+      <p class="tray-hint">Камеры из Viewer появляются здесь как «Не размещены». Перетащите карточку на план этажа или на онлайн-карту. Уже установленную камеру можно перетащить повторно или переместить её маркер прямо на карте.</p>
       <div class="tray-list" id="setupCameras"></div>
     </aside>
 
@@ -49,6 +49,20 @@
           <select id="setupZoneSelect" title="Активная зона"><option value="">Без зоны</option></select>
         </div>
       </div>
+      <div class="floor-camera-tools" id="floorCameraTools" hidden>
+        <b id="floorSelectedName">Камера</b>
+        <label>Направление, ° <input type="range" id="floorAngleRange" min="0" max="360" step="1"><input type="number" id="floorAngle" min="0" max="360" step="1"></label>
+        <label>Сектор, ° <input type="range" id="floorFovRange" min="10" max="180" step="1"><input type="number" id="floorFov" min="10" max="180" step="1"></label>
+        <label>Дальность, % <input type="range" id="floorRangeRange" min="5" max="100" step="1"><input type="number" id="floorRange" min="5" max="100" step="1"></label>
+        <button type="button" class="ghost" id="floorSaveView">Применить направление</button>
+      </div>
+      <div class="geo-camera-tools" id="geoCameraTools" hidden>
+        <b id="geoSelectedName">Камера</b>
+        <label>Азимут, ° <input type="range" id="geoAzimuthRange" min="0" max="360" step="1"><input type="number" id="geoAzimuth" min="0" max="360" step="1"></label>
+        <label>Сектор, ° <input type="range" id="geoFovRange" min="5" max="180" step="1"><input type="number" id="geoFov" min="5" max="180" step="1"></label>
+        <label>Дальность, м <input type="range" id="geoRangeRange" min="5" max="2000" step="5"><input type="number" id="geoRange" min="5" max="2000" step="5"></label>
+        <button type="button" class="ghost" id="geoSaveView">Применить сектор</button>
+      </div>
       <div class="setup-geo-stage" id="setupGeoStage" hidden></div>
       <div class="geo-building-tools" id="geoBuildingTools" hidden>
         <button type="button" class="ghost" id="geoFootprintDraw">Граница территории / контур</button>
@@ -56,13 +70,6 @@
         <button type="button" class="ghost" id="geoFootprintCancel" hidden>Отмена</button>
         <span class="muted">Кликайте по карте контур здания, затем «Завершить».</span>
         <div class="geo-footprint-list" id="geoFootprintList"></div>
-      </div>
-      <div class="geo-camera-tools" id="geoCameraTools" hidden>
-        <label>Азимут, ° <input type="number" id="geoAzimuth" min="0" max="360" step="1"></label>
-        <label>Сектор, ° <input type="number" id="geoFov" min="5" max="180" step="1"></label>
-        <label>Дальность, м <input type="number" id="geoRange" min="5" max="2000" step="5"></label>
-        <button type="button" class="ghost" id="geoSaveView">Применить сектор</button>
-        <span class="muted" id="geoSelectedName"></span>
       </div>
       <div class="setup-stage" id="setupStage">
         <div class="setup-empty" id="setupEmpty">
@@ -96,7 +103,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/@turf/turf@7/turf.min.js"></script>
 <script>window.VHS_GEO_CONFIG = { provider: {{ geo_provider|tojson }}, yandexKey: {{ yandex_key|tojson }} };</script>
-<script src="{{ url_for('static', filename='js/map-setup.js') }}"></script>
+<script src="{{ url_for('static', filename='js/map-setup.js') }}?v=3"></script>
 <script>
 const mapViewerDiscovery = document.getElementById("mapViewerDiscovery");
 const mapViewerList = document.getElementById("mapViewerDiscoveryList");

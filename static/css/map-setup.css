@@ -16,7 +16,7 @@
 .camera-card{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #2b4354;border-radius:6px;background:#0d1b25;cursor:grab;user-select:none}
 .camera-card:hover{border-color:var(--cyan)}
 .camera-card.dragging{opacity:.45}
-.camera-card.locked{opacity:.62;cursor:not-allowed;border-style:dashed}
+.camera-card.locked{opacity:.72;cursor:grab;border-style:dashed}
 .camera-card.locked:hover{border-color:#2b4354}
 .camera-unplace{margin-left:auto;padding:3px 6px!important;font-size:8px!important;text-transform:none;border-color:#563039!important;color:#ff9aa2!important;align-self:center}
 .camera-card .cam-ico{width:23px;height:23px;border-radius:5px;background:#173442;display:flex;align-items:center;justify-content:center;color:var(--cyan);font-size:11px;flex:0 0 auto}
@@ -34,7 +34,11 @@
 .setup-geo-note{position:absolute;z-index:500;left:50%;top:50%;transform:translate(-50%,-50%);padding:20px;text-align:center;color:var(--muted);font-size:12px;background:#08131bee;border:1px solid #2a4152;border-radius:6px;max-width:360px}
 .setup-geo-stage.drop-target{outline:2px solid var(--cyan);outline-offset:-3px}
 .geo-camera-marker{width:28px;height:28px;border-radius:50%;background:var(--cyan);border:2px solid #e6ffff;box-shadow:0 0 0 4px rgba(73,198,212,.25);color:#061219;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;cursor:grab}
-.geo-camera-tools{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-top:8px;padding:8px;border:1px solid #2a4152;border-radius:5px;background:#0b1720}
+.geo-camera-tools,.floor-camera-tools{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-top:8px;padding:8px;border:1px solid #2a4152;border-radius:5px;background:#0b1720}
+.floor-camera-tools> b,.geo-camera-tools> b{align-self:center;font-size:11px;color:var(--cyan);min-width:48px}
+.geo-camera-tools label,.floor-camera-tools label{display:flex;align-items:center;gap:5px;font-size:9px;color:var(--muted);flex-wrap:wrap}
+.geo-camera-tools input[type="range"],.floor-camera-tools input[type="range"]{width:110px;accent-color:var(--cyan)}
+.geo-camera-tools input[type="number"],.floor-camera-tools input[type="number"]{width:58px;padding:3px 5px}
 .geo-camera-tools label{display:grid;gap:3px;font-size:9px;color:var(--muted)}
 .geo-camera-tools input{width:92px;padding:4px 6px}
 .geo-camera-tools button{align-self:center;font-size:10px}
@@ -50,7 +54,8 @@
 .setup-empty{display:flex;flex-direction:column;align-items:center;gap:5px;color:var(--muted);font-size:12px;text-align:center;padding:24px}
 .setup-empty b{color:var(--ink);font-size:16px}
 .setup-markers{position:absolute;inset:0;pointer-events:none}
-.setup-marker{position:absolute;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:50%;background:var(--cyan);border:2px solid #e6ffff;box-shadow:0 0 0 4px rgba(73,198,212,.18);pointer-events:auto;cursor:grab;display:flex;align-items:center;justify-content:center;color:#061219;font-size:9px;font-weight:800}
+.setup-marker{position:absolute;transform:translate(-50%,-50%);width:24px;height:24px;border-radius:50%;background:var(--cyan);border:2px solid #e6ffff;box-shadow:0 0 0 4px rgba(73,198,212,.18);pointer-events:auto;cursor:grab;display:flex;align-items:center;justify-content:center;color:#061219;font-size:9px;font-weight:800;touch-action:none;user-select:none}
+.setup-marker:active{cursor:grabbing}
 .setup-marker.dragging{opacity:.6}
 .setup-marker-label{position:absolute;left:50%;top:27px;transform:translateX(-50%);white-space:nowrap;background:#071018dd;border:1px solid #2a4152;border-radius:3px;padding:2px 5px;font-size:9px;color:var(--ink);pointer-events:none}
 .setup-drop-hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);background:#071018dd;border:1px solid #2a4152;border-radius:4px;padding:4px 8px;font-size:9px;color:var(--muted);pointer-events:none}

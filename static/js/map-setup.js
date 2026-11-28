@@ -1,5 +1,5 @@
 (function () {
-  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null, drawMode: null, drawPoints: [], zones: [], footprints: [], footprintMode: false, footprintPoints: [] };
+  const state = { data: null, buildingId: null, floorId: null, search: "", draggingCamera: null, geoMap: null, geoLayer: null, geoSelected: null, floorSelected: null, drawMode: null, drawPoints: [], zones: [], footprints: [], footprintMode: false, footprintPoints: [] };
   const $ = (selector) => document.querySelector(selector);
   const CSRF = window.CSRF_TOKEN;
 
@@ -127,7 +127,7 @@
       ${items.map((camera) => {
         const locked = Number(camera.placed) === 1;
         return `
-        <div class="camera-card${locked ? " locked" : ""}" draggable="${locked ? "false" : "true"}" data-camera-id="${camera.id}" title="${locked ? "Камера уже установлена" : "Перетащите на план"}">
+        <div class="camera-card${locked ? " locked" : ""}" draggable="true" data-camera-id="${camera.id}" title="${locked ? "Перетащите на карту, чтобы переместить камеру" : "Перетащите на карту"}">
           <span class="cam-ico">${locked ? "●" : "◉"}</span>
           <span><b>${esc(camera.name)}</b><small>${esc(camera.camera_ref)}${camera.zone_name ? ` · ${esc(camera.zone_name)}` : ""}${locked ? " · установлена" : " · не установлена"}</small></span>
           ${locked ? `<button type="button" class="camera-unplace" data-unplace="${camera.id}">Снять</button>` : ""}
@@ -147,6 +147,11 @@
       marker.style.left = `${Number(camera.x) || 0}%`;
       marker.style.top = `${Number(camera.y) || 0}%`;
       marker.innerHTML = `${esc((camera.name || "?").slice(0, 2).toUpperCase())}<span class="setup-marker-label">${esc(camera.name)}</span>`;
+      marker.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (state.drawMode) return;
+        selectFloorCamera(camera);
+      });
       bindMarkerDrag(marker, camera);
       layer.appendChild(marker);
     }
@@ -208,14 +213,59 @@
     return true;
   }
 
+  function setPair(numberId, rangeId, value) {
+    const number = $(numberId), range = $(rangeId);
+    if (number) number.value = String(Math.round(value));
+    if (range) range.value = String(Math.round(value));
+  }
+
+  function selectFloorCamera(camera) {
+    state.floorSelected = camera;
+    state.geoSelected = null;
+    const tools = $("#floorCameraTools");
+    if (tools) tools.hidden = false;
+    const geo = $("#geoCameraTools");
+    if (geo) geo.hidden = true;
+    $("#floorSelectedName").textContent = camera.name || "Камера";
+    setPair("#floorAngle", "#floorAngleRange", Number(camera.angle) || 0);
+    setPair("#floorFov", "#floorFovRange", Number(camera.fov) || 70);
+    setPair("#floorRange", "#floorRangeRange", Number(camera.view_range) || 35);
+  }
+
+  function previewFloorCamera() {
+    const camera = state.floorSelected;
+    if (!camera) return;
+    camera.angle = Number($("#floorAngle").value) || 0;
+    camera.fov = Number($("#floorFov").value) || 70;
+    camera.view_range = Number($("#floorRange").value) || 35;
+    setPair("#floorAngle", "#floorAngleRange", camera.angle);
+    setPair("#floorFov", "#floorFovRange", camera.fov);
+    setPair("#floorRange", "#floorRangeRange", camera.view_range);
+  }
+
   function selectGeoCamera(camera) {
     state.geoSelected = camera;
+    state.floorSelected = null;
+    const floorTools = $("#floorCameraTools");
+    if (floorTools) floorTools.hidden = true;
     const tools = $("#geoCameraTools");
     tools.hidden = false;
     $("#geoSelectedName").textContent = camera.name || "";
-    $("#geoAzimuth").value = Math.round(Number(camera.geo_azimuth) || 0);
-    $("#geoFov").value = Math.round(Number(camera.geo_fov) || 60);
-    $("#geoRange").value = Math.round(Number(camera.geo_range_m) || 80);
+    setPair("#geoAzimuth", "#geoAzimuthRange", Number(camera.geo_azimuth) || 0);
+    setPair("#geoFov", "#geoFovRange", Number(camera.geo_fov) || 60);
+    setPair("#geoRange", "#geoRangeRange", Number(camera.geo_range_m) || 80);
+  }
+
+  function previewGeoCamera() {
+    const camera = state.geoSelected;
+    if (!camera) return;
+    camera.geo_azimuth = Number($("#geoAzimuth").value) || 0;
+    camera.geo_fov = Number($("#geoFov").value) || 60;
+    camera.geo_range_m = Number($("#geoRange").value) || 80;
+    setPair("#geoAzimuth", "#geoAzimuthRange", camera.geo_azimuth);
+    setPair("#geoFov", "#geoFovRange", camera.geo_fov);
+    setPair("#geoRange", "#geoRangeRange", camera.geo_range_m);
+    renderGeo();
   }
 
   function territoryFootprints() {
@@ -315,6 +365,8 @@
       $("#setupStage").hidden = true;
       $("#setupGeoStage").hidden = false;
       $("#geoBuildingTools").hidden = false;
+      $("#floorCameraTools").hidden = true;
+      state.floorSelected = null;
       image.hidden = true;
       empty.hidden = true;
       link.hidden = true;
@@ -325,7 +377,9 @@
     $("#setupGeoStage").hidden = true;
     $("#geoBuildingTools").hidden = true;
     $("#geoCameraTools").hidden = true;
+    $("#floorCameraTools").hidden = true;
     state.geoSelected = null;
+    state.floorSelected = null;
     if (!floor) {
       image.hidden = true;
       image.removeAttribute("src");
@@ -448,7 +502,7 @@
 
   $("#setupCameras").addEventListener("dragstart", (event) => {
     const card = event.target.closest(".camera-card");
-    if (!card || card.classList.contains("locked")) return;
+    if (!card) return;
     state.draggingCamera = card.dataset.cameraId;
     card.classList.add("dragging");
     event.dataTransfer.setData("text/plain", card.dataset.cameraId);
@@ -800,6 +854,53 @@
     } catch (error) {
       setStatus(`Ошибка: ${error.message}`);
     }
+  });
+
+  [["#floorAngle", "#floorAngleRange"], ["#floorFov", "#floorFovRange"], ["#floorRange", "#floorRangeRange"]].forEach(([numberId, rangeId]) => {
+    $(numberId)?.addEventListener("input", () => {
+      const range = $(rangeId);
+      if (range) range.value = $(numberId).value;
+      previewFloorCamera();
+    });
+    $(rangeId)?.addEventListener("input", () => {
+      const number = $(numberId);
+      if (number) number.value = $(rangeId).value;
+      previewFloorCamera();
+    });
+  });
+  $("#floorSaveView")?.addEventListener("click", async () => {
+    const camera = state.floorSelected;
+    if (!camera) return;
+    previewFloorCamera();
+    try {
+      await api(`/api/cameras/${camera.id}/position`, {
+        method: "POST",
+        body: JSON.stringify({
+          x: Number(camera.x) || 50,
+          y: Number(camera.y) || 50,
+          angle: camera.angle,
+          fov: camera.fov,
+          view_range: camera.view_range,
+        }),
+      });
+      renderMarkers();
+      setStatus(`Направление камеры «${camera.name}» сохранено.`);
+    } catch (error) {
+      setStatus(`Ошибка: ${error.message}`);
+    }
+  });
+
+  [["#geoAzimuth", "#geoAzimuthRange"], ["#geoFov", "#geoFovRange"], ["#geoRange", "#geoRangeRange"]].forEach(([numberId, rangeId]) => {
+    $(numberId)?.addEventListener("input", () => {
+      const range = $(rangeId);
+      if (range) range.value = $(numberId).value;
+      previewGeoCamera();
+    });
+    $(rangeId)?.addEventListener("input", () => {
+      const number = $(numberId);
+      if (number) number.value = $(rangeId).value;
+      previewGeoCamera();
+    });
   });
 
   $("#geoSaveView").addEventListener("click", async () => {

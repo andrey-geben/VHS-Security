@@ -1,0 +1,390 @@
+{% extends "base.html" %}
+{% block title %}Автоматизация — VHS-Security{% endblock %}
+{% block content %}
+<style>
+  .automation-page{max-width:1500px;margin:0 auto;display:grid;gap:14px}
+  .automation-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .automation-head h1{margin:3px 0 0;font-size:26px}
+  .automation-head p{margin:6px 0 0;color:var(--muted);font-size:11px;max-width:760px}
+  .automation-tabs{display:flex;gap:6px;flex-wrap:wrap}
+  .automation-tab{border:1px solid #2e4657;background:#0d1b25;color:var(--muted);border-radius:5px;padding:7px 13px;cursor:pointer;font-size:11px}
+  .automation-tab.active{border-color:var(--cyan);color:#dffaff;background:#12303d}
+  .automation-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(330px,.62fr);gap:14px;align-items:start}
+  .automation-card{border:1px solid #2a4152;background:#0b1b24;border-radius:8px;padding:14px;min-width:0}
+  .automation-card h2{margin:0 0 3px;font-size:15px}
+  .automation-card .hint{margin:0 0 12px;color:var(--muted);font-size:10px;line-height:1.45}
+  .automation-list{display:grid;gap:8px}
+  .automation-item{border:1px solid #243d4d;background:#0d222d;border-radius:6px;padding:10px}
+  .automation-item.disabled{opacity:.58}
+  .automation-item-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .automation-item-head b{font-size:12px}
+  .automation-item-head .id{font-family:Consolas,monospace;color:var(--muted);font-size:9px;border:1px solid #2a4152;border-radius:3px;padding:2px 5px}
+  .automation-item .meta{color:var(--muted);font-size:10px;margin-top:5px;line-height:1.35;overflow-wrap:anywhere}
+  .automation-item .actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+  .automation-item .actions button{padding:3px 8px!important;font-size:9px!important}
+  .badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:3px;font-size:8px;text-transform:uppercase;letter-spacing:.04em;border:1px solid #335b48;color:#8ee0b3;background:#0d2a20}
+  .badge.off{border-color:#563039;color:#ff9aa2;background:#2a1115}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .form-grid .full{grid-column:1/-1}
+  .form-grid label{display:grid;gap:3px;color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.04em}
+  .form-grid input,.form-grid select,.form-grid textarea{width:100%;box-sizing:border-box;background:#08151d;color:var(--text);border:1px solid #2e4657;border-radius:4px;padding:6px 7px;font:inherit;font-size:11px}
+  .form-grid textarea{min-height:58px;resize:vertical}
+  .form-grid .checks{display:flex;gap:9px;flex-wrap:wrap;align-items:center;padding-top:2px}
+  .form-grid .checks label{display:flex;align-items:center;gap:4px;text-transform:none;font-size:10px;color:var(--text)}
+  .form-grid input[type=checkbox]{width:auto}
+  .form-actions{display:flex;gap:7px;align-items:center;margin-top:10px}
+  .form-actions .status{font-size:10px;color:var(--muted)}
+  .automation-log{border:1px solid #243d4d;background:#061119;border-radius:5px;padding:8px;max-height:230px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:#9db8c4;font:10px/1.45 Consolas,monospace}
+  [hidden]{display:none!important}
+  @media(max-width:1050px){.automation-grid{grid-template-columns:1fr}}
+  @media(max-width:620px){.form-grid{grid-template-columns:1fr}.automation-page{padding:0 2px}}
+</style>
+
+<div class="automation-page">
+  <div class="automation-head">
+    <div>
+      <div class="kicker">Реакции на события</div>
+      <h1>Автоматизация</h1>
+      <p>Реле и сообщения теперь принадлежат Security. События приходят из Viewer, правила проверяются здесь; Viewer остаётся источником данных и аналитики.</p>
+    </div>
+    <div class="automation-tabs">
+      <button type="button" class="automation-tab active" data-tab="relays">Реле</button>
+      <button type="button" class="automation-tab" data-tab="messaging">Сообщения</button>
+    </div>
+  </div>
+
+  <section class="automation-grid" data-section="relays">
+    <div class="automation-card">
+      <h2>HTTP-реле</h2>
+      <p class="hint">Реле реагирует на выбранные события: людей, машины, животных, объекты или номера. Для номеров можно дополнительно задать белый список.</p>
+      <div class="automation-list" id="relay-list"><p class="muted">Загрузка…</p></div>
+    </div>
+    <div class="automation-card">
+      <h2 id="relay-form-title">Новое реле</h2>
+      <p class="hint">URL открытия/закрытия, список номеров и камер.</p>
+      <form id="relay-form">
+        <input type="hidden" name="original_id" id="relay-original-id">
+        <div class="form-grid">
+          <label>ID<input name="id" id="relay-id" placeholder="gate-1" required pattern="[A-Za-z0-9_-]{1,50}"></label>
+          <label>Название<input name="name" id="relay-name" placeholder="Шлагбаум"></label>
+          <label class="full">URL открыть<input name="url_open" id="relay-url-open" placeholder="http://192.168.1.50/open"></label>
+          <label class="full">URL закрыть<input name="url_close" id="relay-url-close" placeholder="необязательно"></label>
+          <label>Метод<select name="method" id="relay-method"><option>GET</option><option>POST</option></select></label>
+          <label>Открыто, сек<input name="open_duration_sec" id="relay-open-duration" type="number" min="1" max="3600" value="5"></label>
+          <label>Cooldown, сек<input name="cooldown_sec" id="relay-cooldown" type="number" min="0" max="86400" value="30"></label>
+          <label>Enabled<select name="enabled" id="relay-enabled"><option value="1">Да</option><option value="0">Нет</option></select></label>
+          <label class="full">Типы событий
+            <span class="checks">
+              <label><input type="checkbox" class="relay-type" value="plate" checked> Номера</label>
+              <label><input type="checkbox" class="relay-type" value="person" checked> Люди</label>
+              <label><input type="checkbox" class="relay-type" value="vehicle" checked> Машины</label>
+              <label><input type="checkbox" class="relay-type" value="animal" checked> Животные</label>
+              <label><input type="checkbox" class="relay-type" value="object" checked> Объекты</label>
+            </span>
+          </label>
+          <label class="full">Номера (для событий «Номера»; пусто — любой номер)<textarea name="whitelist" id="relay-whitelist" placeholder="А123ВС77"></textarea></label>
+          <label class="full">Камеры (ID через запятую; пусто — все)<input name="cameras" id="relay-cameras" placeholder="1, 3"></label>
+        </div>
+        <div class="form-actions"><button class="primary" type="submit">Сохранить реле</button><button class="ghost" type="button" id="relay-reset">Очистить</button><span class="status" id="relay-status"></span></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="automation-grid" data-section="messaging" hidden>
+    <div class="automation-card">
+      <h2>Каналы сообщений</h2>
+      <p class="hint">Telegram, MAX и webhook. Фильтры по категориям, камерам и уверенности.</p>
+      <div class="automation-list" id="channel-list"><p class="muted">Загрузка…</p></div>
+    </div>
+    <div class="automation-card">
+      <h2 id="channel-form-title">Новый канал</h2>
+      <p class="hint">Токены хранятся в SQLite Security и не возвращаются в списке.</p>
+      <form id="channel-form">
+        <input type="hidden" name="original_id" id="channel-original-id">
+        <div class="form-grid">
+          <label>ID<input name="id" id="channel-id" placeholder="telegram-1" required pattern="[A-Za-z0-9_-]{1,50}"></label>
+          <label>Название<input name="name" id="channel-name" placeholder="Охрана"></label>
+          <label>Тип<select name="type" id="channel-type"><option value="telegram">Telegram</option><option value="max">MAX</option><option value="webhook">Webhook</option></select></label>
+          <label>Enabled<select name="enabled" id="channel-enabled"><option value="1">Да</option><option value="0">Нет</option></select></label>
+          <label class="full">Token (Telegram/MAX)<input name="token" id="channel-token" placeholder="bot token"></label>
+          <label>Chat ID<input name="chat_id" id="channel-chat-id" placeholder="123456"></label>
+          <label>MAX recipient ID<input name="max_recipient_id" id="channel-max-id" placeholder="user/chat id"></label>
+          <label>MAX recipient<select name="max_recipient_type" id="channel-max-type"><option value="user">user</option><option value="chat">chat</option></select></label>
+          <label class="full">Webhook URL<input name="url" id="channel-url" placeholder="https://..."></label>
+          <label>Мин. уверенность<input name="min_confidence" id="channel-min-confidence" type="number" min="0" max="1" step="0.01" value="0"></label>
+          <label>Cooldown, сек<input name="cooldown_sec" id="channel-cooldown" type="number" min="0" max="86400" value="0"></label>
+          <label class="full">Категории
+            <span class="checks">
+              <label><input type="checkbox" name="categories" value="plate"> Номера</label>
+              <label><input type="checkbox" name="categories" value="person"> Люди</label>
+              <label><input type="checkbox" name="categories" value="vehicle"> Машины</label>
+              <label><input type="checkbox" name="categories" value="animal"> Животные</label>
+            </span>
+          </label>
+          <label class="full">Камеры (ID через запятую; пусто — все)<input name="cameras" id="channel-cameras" placeholder="1, 3"></label>
+          <label class="full">Шаблон<textarea name="template" id="channel-template" placeholder="{emoji} {category_rus} на *{camera_name}*&#10;{detail}&#10;Время: {iso}"></textarea></label>
+          <label class="checks full"><label><input type="checkbox" name="attach_snapshot" id="channel-snapshot" checked> Прикреплять снапшот</label></label>
+        </div>
+        <div class="form-actions"><button class="primary" type="submit">Сохранить канал</button><button class="ghost" type="button" id="channel-reset">Очистить</button><span class="status" id="channel-status"></span></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="automation-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap"><h2 style="margin:0">Журнал автоматизации</h2><button class="ghost" type="button" id="automation-log-refresh">Обновить журнал</button></div>
+    <pre class="automation-log" id="automation-log">Загрузка…</pre>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const csrf = window.CSRF_TOKEN || '';
+  let relays = [];
+  let channels = [];
+  const $ = (selector) => document.querySelector(selector);
+  const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  function splitList(value) {
+    return String(value || '').split(/[\n,;]+/).map(item => item.trim()).filter(Boolean);
+  }
+  function setStatus(id, text, error) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = error ? '#ff9aa2' : '';
+  }
+
+  function renderRelays() {
+    const root = $('#relay-list');
+    if (!relays.length) { root.innerHTML = '<p class="muted">Реле пока нет.</p>'; return; }
+    root.innerHTML = relays.map(relay => `
+      <div class="automation-item ${relay.enabled ? '' : 'disabled'}">
+        <div class="automation-item-head">
+          <b>${esc(relay.name || relay.id)}</b><span class="id">${esc(relay.id)}</span>
+          <span class="badge ${relay.enabled ? '' : 'off'}">${relay.enabled ? 'включено' : 'выключено'}</span>
+        </div>
+        <div class="meta">${esc(relay.url_open || 'URL не задан')}<br>События: ${(relay.event_types || ['plate']).join(', ')} · номера в списке: ${(relay.whitelist || []).length} · камеры: ${(relay.cameras || []).join(', ') || 'все'}</div>
+        <div class="actions">
+          <button type="button" class="ghost" data-relay-edit="${esc(relay.id)}">Изменить</button>
+          <button type="button" class="ghost" data-relay-test="${esc(relay.id)}">Тест</button>
+          <button type="button" class="ghost danger" data-relay-delete="${esc(relay.id)}">Удалить</button>
+        </div>
+      </div>`).join('');
+  }
+
+  function renderChannels() {
+    const root = $('#channel-list');
+    if (!channels.length) { root.innerHTML = '<p class="muted">Каналов пока нет.</p>'; return; }
+    root.innerHTML = channels.map(channel => `
+      <div class="automation-item ${channel.enabled ? '' : 'disabled'}">
+        <div class="automation-item-head">
+          <b>${esc(channel.name || channel.id)}</b><span class="id">${esc(channel.id)}</span>
+          <span class="badge ${channel.enabled ? '' : 'off'}">${esc(channel.type || '?')}</span>
+        </div>
+        <div class="meta">${channel.categories?.length ? 'категории: ' + channel.categories.map(esc).join(', ') : 'все категории'} · камеры: ${(channel.cameras || []).join(', ') || 'все'}</div>
+        <div class="actions">
+          <button type="button" class="ghost" data-channel-edit="${esc(channel.id)}">Изменить</button>
+          <button type="button" class="ghost" data-channel-test="${esc(channel.id)}">Тест</button>
+          <button type="button" class="ghost danger" data-channel-delete="${esc(channel.id)}">Удалить</button>
+        </div>
+      </div>`).join('');
+  }
+
+  async function api(url, options = {}) {
+    const response = await fetch(url, {
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf, ...(options.headers || {})},
+      ...options,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || ('HTTP ' + response.status));
+    return data;
+  }
+
+  async function loadRelays() {
+    const data = await api('/api/automation/relays');
+    relays = data.relays || [];
+    renderRelays();
+  }
+  async function loadChannels() {
+    const data = await api('/api/automation/channels');
+    channels = data.channels || [];
+    renderChannels();
+  }
+  async function loadLog() {
+    try {
+      const [r, c] = await Promise.all([api('/api/automation/relays/log'), api('/api/automation/channels/log')]);
+      const lines = [...(r.lines || []).map(line => '[relay] ' + line), ...(c.lines || []).map(line => '[message] ' + line)];
+      $('#automation-log').textContent = lines.slice(-160).join('\n') || 'Журнал пуст.';
+    } catch (error) {
+      $('#automation-log').textContent = 'Ошибка журнала: ' + error.message;
+    }
+  }
+
+  function relayFromForm() {
+    const form = $('#relay-form');
+    const data = Object.fromEntries(new FormData(form).entries());
+    return {
+      id: data.id.trim(), name: data.name.trim(), enabled: data.enabled === '1',
+      url_open: data.url_open.trim(), url_close: data.url_close.trim(),
+      method: data.method, open_duration_sec: Number(data.open_duration_sec) || 5,
+      cooldown_sec: Number(data.cooldown_sec) || 0,
+      event_types: [...document.querySelectorAll('.relay-type:checked')].map(cb => cb.value),
+      whitelist: splitList(data.whitelist), cameras: splitList(data.cameras),
+    };
+  }
+  function channelFromForm() {
+    const form = $('#channel-form');
+    const data = Object.fromEntries(new FormData(form).entries());
+    return {
+      id: data.id.trim(), name: data.name.trim(), type: data.type, enabled: data.enabled === '1',
+      token: data.token.trim(), chat_id: data.chat_id.trim(),
+      max_recipient_id: data.max_recipient_id.trim(), max_recipient_type: data.max_recipient_type,
+      url: data.url.trim(), min_confidence: Number(data.min_confidence) || 0,
+      cooldown_sec: Number(data.cooldown_sec) || 0,
+      categories: [...form.querySelectorAll('input[name="categories"]:checked')].map(cb => cb.value),
+      cameras: splitList(data.cameras), template: data.template.trim(),
+      attach_snapshot: form.querySelector('#channel-snapshot').checked,
+    };
+  }
+
+  function resetRelayForm() {
+    $('#relay-form').reset();
+    $('#relay-original-id').value = '';
+    $('#relay-form-title').textContent = 'Новое реле';
+    $('#relay-enabled').value = '1';
+    $('#relay-open-duration').value = '5';
+    $('#relay-cooldown').value = '30';
+    document.querySelectorAll('.relay-type').forEach(cb => { cb.checked = true; });
+    setStatus('relay-status', '');
+  }
+  function resetChannelForm() {
+    $('#channel-form').reset();
+    $('#channel-original-id').value = '';
+    $('#channel-form-title').textContent = 'Новый канал';
+    $('#channel-enabled').value = '1';
+    $('#channel-min-confidence').value = '0';
+    $('#channel-cooldown').value = '0';
+    $('#channel-snapshot').checked = true;
+    setStatus('channel-status', '');
+  }
+
+  function editRelay(id) {
+    const relay = relays.find(item => item.id === id);
+    if (!relay) return;
+    $('#relay-original-id').value = relay.id;
+    $('#relay-id').value = relay.id;
+    $('#relay-name').value = relay.name || '';
+    $('#relay-url-open').value = relay.url_open || '';
+    $('#relay-url-close').value = relay.url_close || '';
+    $('#relay-method').value = relay.method || 'GET';
+    $('#relay-open-duration').value = relay.open_duration_sec || 5;
+    $('#relay-cooldown').value = relay.cooldown_sec ?? 30;
+    $('#relay-enabled').value = relay.enabled ? '1' : '0';
+    const relayTypes = relay.event_types || ['plate'];
+    document.querySelectorAll('.relay-type').forEach(cb => { cb.checked = relayTypes.includes(cb.value); });
+    $('#relay-whitelist').value = (relay.whitelist || []).join('\n');
+    $('#relay-cameras').value = (relay.cameras || []).join(', ');
+    $('#relay-form-title').textContent = 'Редактирование реле';
+    document.querySelector('[data-section="relays"]').scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+
+  function editChannel(id) {
+    const channel = channels.find(item => item.id === id);
+    if (!channel) return;
+    $('#channel-original-id').value = channel.id;
+    $('#channel-id').value = channel.id;
+    $('#channel-name').value = channel.name || '';
+    $('#channel-type').value = channel.type || 'telegram';
+    $('#channel-enabled').value = channel.enabled ? '1' : '0';
+    $('#channel-token').value = '';
+    $('#channel-chat-id').value = channel.chat_id || '';
+    $('#channel-max-id').value = channel.max_recipient_id || '';
+    $('#channel-max-type').value = channel.max_recipient_type || 'user';
+    $('#channel-url').value = channel.url || '';
+    $('#channel-min-confidence').value = channel.min_confidence ?? 0;
+    $('#channel-cooldown').value = channel.cooldown_sec ?? 0;
+    $('#channel-cameras').value = (channel.cameras || []).join(', ');
+    $('#channel-template').value = channel.template || '';
+    $('#channel-snapshot').checked = channel.attach_snapshot !== false;
+    document.querySelectorAll('#channel-form input[name="categories"]').forEach(cb => {
+      cb.checked = (channel.categories || []).includes(cb.value);
+    });
+    $('#channel-form-title').textContent = 'Редактирование канала';
+    document.querySelector('[data-section="messaging"]').scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+
+  $('#relay-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const original = $('#relay-original-id').value;
+    const relay = relayFromForm();
+    if (!relay.id) return;
+    const next = relays.filter(item => item.id !== (original || relay.id));
+    if (relays.some(item => item.id === relay.id && item.id !== original)) {
+      setStatus('relay-status', 'ID уже используется', true); return;
+    }
+    next.push(relay);
+    try {
+      await api('/api/automation/relays', {method: 'POST', body: JSON.stringify({relays: next})});
+      relays = next; renderRelays(); resetRelayForm(); setStatus('relay-status', 'Сохранено');
+    } catch (error) { setStatus('relay-status', 'Ошибка: ' + error.message, true); }
+  });
+
+  $('#channel-form').addEventListener('submit', async event => {
+    event.preventDefault();
+    const original = $('#channel-original-id').value;
+    const channel = channelFromForm();
+    if (!channel.id) return;
+    const existing = channels.find(item => item.id === (original || channel.id));
+    if (existing && !channel.token) channel.token = existing.token || '';
+    const next = channels.filter(item => item.id !== (original || channel.id));
+    if (channels.some(item => item.id === channel.id && item.id !== original)) {
+      setStatus('channel-status', 'ID уже используется', true); return;
+    }
+    next.push(channel);
+    try {
+      await api('/api/automation/channels', {method: 'POST', body: JSON.stringify({channels: next})});
+      channels = next; renderChannels(); resetChannelForm(); setStatus('channel-status', 'Сохранено');
+    } catch (error) { setStatus('channel-status', 'Ошибка: ' + error.message, true); }
+  });
+
+  document.addEventListener('click', async event => {
+    const editRelayId = event.target.closest('[data-relay-edit]')?.dataset.relayEdit;
+    const testRelayId = event.target.closest('[data-relay-test]')?.dataset.relayTest;
+    const deleteRelayId = event.target.closest('[data-relay-delete]')?.dataset.relayDelete;
+    const editChannelId = event.target.closest('[data-channel-edit]')?.dataset.channelEdit;
+    const testChannelId = event.target.closest('[data-channel-test]')?.dataset.channelTest;
+    const deleteChannelId = event.target.closest('[data-channel-delete]')?.dataset.channelDelete;
+    if (editRelayId) editRelay(editRelayId);
+    if (editChannelId) editChannel(editChannelId);
+    if (testRelayId) {
+      try { const result = await api('/api/automation/relays/' + encodeURIComponent(testRelayId) + '/test', {method: 'POST', body: '{}'}); setStatus('relay-status', result.ok ? 'Реле ответило' : 'Ошибка: ' + (result.error || ''), !result.ok); } catch (error) { setStatus('relay-status', error.message, true); }
+    }
+    if (testChannelId) {
+      try { const result = await api('/api/automation/channels/' + encodeURIComponent(testChannelId) + '/test', {method: 'POST', body: '{}'}); setStatus('channel-status', result.ok ? 'Сообщение отправлено' : 'Ошибка: ' + (result.error || ''), !result.ok); } catch (error) { setStatus('channel-status', error.message, true); }
+    }
+    if (deleteRelayId && confirm('Удалить реле?')) {
+      relays = relays.filter(item => item.id !== deleteRelayId); renderRelays();
+      await api('/api/automation/relays', {method: 'POST', body: JSON.stringify({relays})});
+    }
+    if (deleteChannelId && confirm('Удалить канал?')) {
+      channels = channels.filter(item => item.id !== deleteChannelId); renderChannels();
+      await api('/api/automation/channels', {method: 'POST', body: JSON.stringify({channels})});
+    }
+  });
+
+  document.querySelectorAll('.automation-tab').forEach(tab => tab.addEventListener('click', () => {
+    document.querySelectorAll('.automation-tab').forEach(item => item.classList.toggle('active', item === tab));
+    document.querySelectorAll('[data-section]').forEach(section => section.hidden = section.dataset.section !== tab.dataset.tab);
+    loadLog();
+  }));
+  document.getElementById('relay-reset').addEventListener('click', resetRelayForm);
+  document.getElementById('channel-reset').addEventListener('click', resetChannelForm);
+  document.getElementById('automation-log-refresh').addEventListener('click', loadLog);
+
+  Promise.all([loadRelays(), loadChannels(), loadLog()]).catch(error => setStatus('relay-status', error.message, true));
+  setInterval(loadLog, 15000);
+})();
+</script>
+{% endblock %}

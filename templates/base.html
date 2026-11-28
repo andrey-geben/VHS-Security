@@ -16,7 +16,9 @@
   <nav>
     <a href="{{ url_for('index') }}">Карта</a>
     <a href="{{ url_for('mosaic_page') }}">Мозаика</a>
+    <a href="{{ url_for('security_archive_page') }}">Архив</a>
     {% if user and user.role == 'admin' %}<a href="{{ url_for('map_setup_page') }}">Настройка карт</a>{% endif %}
+    {% if user and user.role == 'admin' %}<a href="{{ url_for('automation_page') }}">Автоматизация</a>{% endif %}
     {% if user and user.role == 'admin' %}<a href="{{ url_for('settings') }}">Настройки</a>{% endif %}
     <a href="{{ url_for('system_page') }}">Система</a>
     <button type="button" class="theme-toggle" id="theme-toggle" title="Переключить тему">🌙</button>
@@ -26,8 +28,68 @@
   </nav>
 </header>
 <main>{% block content %}{% endblock %}</main>
-<footer class="vhs-footer"><span>{{ app_footer }}</span><nav><a href="{{ url_for('about') }}">О программе</a><a href="{{ url_for('system_page') }}">Система</a></nav></footer>
+<footer class="vhs-footer">
+  <span>{{ app_footer }}</span>
+  <div class="footer-monitor" id="security-monitor" title="Мониторинг VHS-Security">
+    <span>CPU <b id="sec-mon-cpu">—</b></span>
+    <span>RAM <b id="sec-mon-ram">—</b></span>
+    <span id="sec-mon-disks">Диски: —</span>
+    <span>Сеть <b id="sec-mon-net">—</b></span>
+  </div>
+  <nav><a href="{{ url_for('about') }}">О программе</a><a href="{{ url_for('system_page') }}">Система</a></nav>
+</footer>
 <script>window.CSRF_TOKEN = {{ csrf_token()|tojson }}; window.USER_ROLE = {{ (user.role if user else 'viewer')|tojson }};</script>
+<script>
+(function () {
+  const monitor = document.getElementById('security-monitor');
+  if (!monitor) return;
+  const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const color = (pct) => pct == null ? '#8fa9b5' : (pct >= 90 ? '#ff7f7f' : pct >= 75 ? '#d3a85a' : '#70d2a0');
+
+  async function refresh() {
+    try {
+      const response = await fetch('/api/system/stats', {headers: {Accept: 'application/json'}, cache: 'no-store'});
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!data.ok) return;
+      const cpu = data.cpu?.percent;
+      const ram = data.ram || {};
+      const net = data.network || {};
+      const disks = data.disks || [];
+      const cpuEl = document.getElementById('sec-mon-cpu');
+      const ramEl = document.getElementById('sec-mon-ram');
+      const disksEl = document.getElementById('sec-mon-disks');
+      const netEl = document.getElementById('sec-mon-net');
+      if (cpuEl) {
+        cpuEl.textContent = cpu == null ? '—' : Math.round(cpu) + '%';
+        cpuEl.style.color = color(cpu);
+      }
+      if (ramEl) {
+        const used = (ram.used_mb || 0) / 1024;
+        const total = (ram.total_mb || 0) / 1024;
+        ramEl.textContent = ram.percent == null ? '—' :
+          Math.round(ram.percent) + '% (' + used.toFixed(1) + '/' + total.toFixed(1) + ' ГБ)';
+        ramEl.style.color = color(ram.percent);
+      }
+      if (disksEl) {
+        disksEl.innerHTML = disks.length ? 'Диски: ' + disks.map(disk => {
+          const pct = Math.round(disk.percent || 0);
+          return esc(disk.label || disk.mount || '?') + ': <b style="color:' + color(pct) + '">' + pct + '%</b>';
+        }).join(' · ') : 'Диски: —';
+      }
+      if (netEl) {
+        const down = net.recv_mbps == null ? '—' : Number(net.recv_mbps).toFixed(1);
+        const up = net.sent_mbps == null ? '—' : Number(net.sent_mbps).toFixed(1);
+        netEl.textContent = '↓ ' + down + ' / ↑ ' + up + ' Мбит/с';
+      }
+    } catch (error) {
+      // Мониторинг не должен влиять на работу Security.
+    }
+  }
+  refresh();
+  setInterval(refresh, 5000);
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

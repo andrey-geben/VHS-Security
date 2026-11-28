@@ -25,8 +25,15 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 import requests
+
+try:
+    import psutil
+except ImportError:  # мониторинг не должен ломать Security
+    psutil = None
+
 from flask import (
     Flask,
+    Response,
     abort,
     g,
     jsonify,
@@ -35,6 +42,7 @@ from flask import (
     request,
     send_from_directory,
     session,
+    stream_with_context,
     url_for,
 )
 from werkzeug.utils import secure_filename
@@ -42,6 +50,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import notifications
 import vhs_sso
+from messaging_manager import MessageManager
+from relay_manager import RelayManager
 from __version__ import APP_FOOTER, APP_NAME, __author__, __copyright__, __license__, __url__, __version__
 
 BASE_DIR = (
@@ -438,6 +448,83 @@ def set_streamer_url(url: str):
 def get_app_setting(key: str, default: str = "") -> str:
     row = one("SELECT value FROM settings WHERE key=?", (key,))
     return row["value"] if row else default
+
+
+# ----------------------------------------------------------------------
+# Автоматизация: реле и сообщения по событиям Viewer.
+# Раньше жила в Viewer; теперь единственный владелец — Security.
+# ----------------------------------------------------------------------
+AUTOMATION_LOG_DIR = DATA_DIR / "logs"
+_RELAY_MANAGER: RelayManager | None = None
+_MESSAGE_MANAGER: MessageManager | None = None
+
+
+def _automation_setting(key: str, default):
+    raw = get_app_setting(key, "")
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError):
+        return default
+
+
+def _save_automation_setting(key: str, value) -> None:
+    db = get_db()
+    db.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, json.dumps(value, ensure_ascii=False)),
+    )
+    db.commit()
+
+
+def _automation_managers() -> tuple[RelayManager, MessageManager]:
+    global _RELAY_MANAGER, _MESSAGE_MANAGER
+    if _RELAY_MANAGER is None:
+        _RELAY_MANAGER = RelayManager(
+            _automation_setting("automation_relays", {"relays": []}),
+            log_dir=AUTOMATION_LOG_DIR,
+        )
+    if _MESSAGE_MANAGER is None:
+        _MESSAGE_MANAGER = MessageManager(
+            _automation_setting("automation_messaging", {"channels": []}),
+            log_dir=AUTOMATION_LOG_DIR,
+        )
+    return _RELAY_MANAGER, _MESSAGE_MANAGER
+
+
+def reload_automation() -> None:
+    """Пересобрать оба менеджера после изменения настроек."""
+    global _RELAY_MANAGER, _MESSAGE_MANAGER
+    _RELAY_MANAGER = None
+    _MESSAGE_MANAGER = None
+    _automation_managers()
+
+
+def _automation_on_event(camera_ref: str, camera_name: str, event: dict) -> None:
+    """Выполнить реакции Security на событие, пришедшее из Viewer."""
+    try:
+        relay, messaging = _automation_managers()
+        category = str(event.get("category") or "object").lower()
+        plate = str(event.get("plate") or "")
+        detection = {
+            "category": category,
+            "label": event.get("label") or event.get("plate") or "?",
+            "plate": plate,
+            "confidence": event.get("confidence") or 0,
+        }
+        stream = {"id": str(camera_ref), "name": str(camera_name)}
+        relay.check_all(
+            plate,
+            str(camera_ref),
+            str(camera_name),
+            category=category,
+            label=str(detection.get("label") or detection.get("plate") or ""),
+        )
+        messaging.send_all(detection, stream, snapshot_path=None)
+    except Exception:
+        app.logger.exception("automation: ошибка обработки события")
 
 
 def get_viewer_url() -> str:
@@ -1275,6 +1362,217 @@ def api_ptz_command(camera_id: str, action: str):
     return jsonify(body), status
 
 
+def _relay_config() -> dict:
+    configured = _automation_setting("automation_relays", {"relays": []})
+    return configured if isinstance(configured, dict) else {"relays": []}
+
+
+def _messaging_config() -> dict:
+    configured = _automation_setting("automation_messaging", {"channels": []})
+    return configured if isinstance(configured, dict) else {"channels": []}
+
+
+def _automation_log(name: str, limit: int = 120) -> list[str]:
+    path = AUTOMATION_LOG_DIR / name
+    if not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        return lines[-max(1, min(limit, 500)):]
+    except OSError:
+        return []
+
+
+def _viewer_archive_headers(extra: dict | None = None) -> dict:
+    token = get_ingest_token()
+    headers = {"X-VHS-Key": token, "X-VHS-Service": "security", "X-Ingest-Token": token} if token else {}
+    if extra:
+        headers.update(extra)
+    return headers
+
+
+def _viewer_archive_json(path: str, *, method: str = "GET", payload=None, params=None):
+    base = get_viewer_url()
+    token = get_ingest_token()
+    if not base or not token:
+        return None, (jsonify({"error": "Viewer URL или ключ интеграции не настроены"}), 503)
+    try:
+        response = requests.request(
+            method, base + path, headers=_viewer_archive_headers(),
+            json=payload, params=params, timeout=15,
+        )
+    except requests.RequestException as exc:
+        return None, (jsonify({"error": f"Viewer недоступен: {exc}"}), 502)
+    try:
+        data = response.json()
+    except ValueError:
+        data = {"error": response.text[:500]}
+    if not response.ok:
+        return None, (jsonify(data if isinstance(data, dict) else {"error": data}),
+                      response.status_code if response.status_code >= 400 else 502)
+    return data, None
+
+
+@app.get("/archive")
+@login_required
+def security_archive_page():
+    return render_template("archive.html", user=g.user)
+
+
+@app.get("/api/security/archive/status")
+@login_required
+def api_security_archive_status():
+    data, error = _viewer_archive_json("/api/integration/archive/status")
+    return error if error else jsonify(data)
+
+
+@app.get("/api/security/archive/clips")
+@login_required
+def api_security_archive_clips():
+    params = {key: request.args[key] for key in ("camera", "category", "date", "limit")
+              if request.args.get(key)}
+    data, error = _viewer_archive_json("/api/integration/archive/clips", params=params)
+    return error if error else jsonify(data)
+
+
+@app.get("/api/security/archive/config")
+@admin_required
+def api_security_archive_config_get():
+    data, error = _viewer_archive_json("/api/integration/archive/config")
+    return error if error else jsonify(data)
+
+
+@app.post("/api/security/archive/config")
+@admin_required
+def api_security_archive_config_save():
+    payload = request.get_json(silent=True) or {}
+    data, error = _viewer_archive_json(
+        "/api/integration/archive/config", method="POST",
+        payload={"archive": payload.get("archive", payload)},
+    )
+    return error if error else jsonify(data)
+
+
+@app.get("/api/security/archive/file/<path:relative>")
+@login_required
+def api_security_archive_file(relative: str):
+    base = get_viewer_url()
+    token = get_ingest_token()
+    if not base or not token:
+        abort(404)
+    headers = _viewer_archive_headers()
+    if request.headers.get("Range"):
+        headers["Range"] = request.headers["Range"]
+    try:
+        upstream = requests.get(
+            base + "/api/integration/archive/file/" + quote(relative, safe="/"),
+            headers=headers, stream=True, timeout=30,
+        )
+    except requests.RequestException:
+        abort(502)
+    if not upstream.ok:
+        abort(upstream.status_code if upstream.status_code in (401, 403, 404, 416) else 502)
+    out_headers = {}
+    for name in ("Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified"):
+        if upstream.headers.get(name):
+            out_headers[name] = upstream.headers[name]
+    return Response(
+        stream_with_context(upstream.iter_content(chunk_size=64 * 1024)),
+        status=upstream.status_code,
+        content_type=upstream.headers.get("Content-Type", "video/mp4"),
+        headers=out_headers,
+        direct_passthrough=True,
+    )
+
+
+@app.get("/automation")
+@admin_required
+def automation_page():
+    return render_template("automation.html")
+
+
+@app.get("/api/automation/relays")
+@admin_required
+def api_automation_relays():
+    return jsonify({"relays": _relay_config().get("relays", [])})
+
+
+@app.post("/api/automation/relays")
+@admin_required
+def api_automation_relays_save():
+    payload = request.get_json(silent=True) or {}
+    relays = payload.get("relays")
+    if not isinstance(relays, list):
+        return jsonify({"error": "relays должен быть списком"}), 400
+    clean = []
+    for item in relays:
+        if not isinstance(item, dict):
+            continue
+        relay = dict(item)
+        relay["id"] = str(relay.get("id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,50}", relay["id"] or ""):
+            continue
+        clean.append(relay)
+    _save_automation_setting("automation_relays", {"relays": clean})
+    reload_automation()
+    return jsonify({"ok": True, "relays": clean})
+
+
+@app.post("/api/automation/relays/<relay_id>/test")
+@admin_required
+def api_automation_relay_test(relay_id: str):
+    relay, _ = _automation_managers()
+    return jsonify(relay.test_relay(relay_id))
+
+
+@app.get("/api/automation/relays/log")
+@admin_required
+def api_automation_relay_log():
+    return jsonify({"lines": _automation_log("relay.log")})
+
+
+@app.get("/api/automation/channels")
+@admin_required
+def api_automation_channels():
+    return jsonify({"channels": _messaging_config().get("channels", [])})
+
+
+@app.post("/api/automation/channels")
+@admin_required
+def api_automation_channels_save():
+    payload = request.get_json(silent=True) or {}
+    channels = payload.get("channels")
+    if not isinstance(channels, list):
+        return jsonify({"error": "channels должен быть списком"}), 400
+    clean = []
+    for item in channels:
+        if not isinstance(item, dict):
+            continue
+        channel = dict(item)
+        channel["id"] = str(channel.get("id") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,50}", channel["id"] or ""):
+            continue
+        if channel.get("type") not in ("telegram", "max", "webhook"):
+            channel["type"] = "telegram"
+        clean.append(channel)
+    _save_automation_setting("automation_messaging", {"channels": clean})
+    reload_automation()
+    return jsonify({"ok": True, "channels": clean})
+
+
+@app.post("/api/automation/channels/<channel_id>/test")
+@admin_required
+def api_automation_channel_test(channel_id: str):
+    _, messaging = _automation_managers()
+    return jsonify(messaging.test_channel(channel_id))
+
+
+@app.get("/api/automation/channels/log")
+@admin_required
+def api_automation_channel_log():
+    return jsonify({"lines": _automation_log("messages.log")})
+
+
 @app.context_processor
 def _inject():
     return {
@@ -2069,13 +2367,15 @@ def about():
     )
 
 
-def ensure_viewer_stream_urls():
-    """Обновить пустые stream_url из Viewer без ручной синхронизации."""
-    db = get_db()
-    empty = db.execute(
-        "SELECT COUNT(*) AS n FROM cameras WHERE stream_url IS NULL OR stream_url=''"
-    ).fetchone()["n"]
-    if not empty or not get_viewer_url() or not get_ingest_token():
+_STREAM_URL_SYNC = {"ts": 0.0}
+_STREAM_URL_TTL = 15.0
+
+
+def ensure_viewer_stream_urls(force: bool = False):
+    """Обновлять WHEP-URL из Viewer: токены MediaMTX истекают."""
+    if not get_viewer_url() or not get_ingest_token():
+        return
+    if not force and time.time() - _STREAM_URL_SYNC["ts"] < _STREAM_URL_TTL:
         return
     try:
         response = requests.get(
@@ -2083,6 +2383,7 @@ def ensure_viewer_stream_urls():
             headers={"X-VHS-Key": get_ingest_token(), "X-VHS-Service": "security", "X-Ingest-Token": get_ingest_token()}, timeout=8,
         )
         response.raise_for_status()
+        db = get_db()
         for item in response.json().get("cameras", []):
             ref = str(item.get("id") or "").strip()
             streams = item.get("streams") or []
@@ -2094,6 +2395,7 @@ def ensure_viewer_stream_urls():
                     (url, ref, name),
                 )
         db.commit()
+        _STREAM_URL_SYNC["ts"] = time.time()
     except Exception:
         pass
 
@@ -2386,19 +2688,45 @@ def api_whep():
     sdp = str(data.get("sdp") or "")
     if not stream_url or not sdp:
         return jsonify({"ok": False, "error": "url и sdp обязательны"}), 400
-    try:
-        parsed = urlparse(stream_url)
-        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+    def request_whep(url: str):
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
             raise ValueError("некорректный URL")
-        whep_url = parsed.origin if hasattr(parsed, "origin") else f"{parsed.scheme}://{parsed.netloc}"
-        whep_url = whep_url.rstrip("/") + parsed.path.rstrip("/") + "/whep"
+        host = parsed.hostname
+        port = f":{parsed.port}" if parsed.port else ""
+        whep_url = f"{parsed.scheme}://{host}{port}{parsed.path.rstrip('/')}/whep"
         headers = {"Content-Type": "application/sdp", "Accept": "application/sdp"}
         if parsed.username or parsed.password:
             credentials = f"{parsed.username or ''}:{parsed.password or ''}"
             headers["Authorization"] = "Basic " + __import__("base64").b64encode(
                 credentials.encode("utf-8")
             ).decode("ascii")
-        response = requests.post(whep_url, data=sdp.encode("utf-8"), headers=headers, timeout=15)
+        return requests.post(whep_url, data=sdp.encode("utf-8"), headers=headers, timeout=15)
+
+    def fresh_stream_url(old_url: str) -> str:
+        try:
+            ensure_viewer_stream_urls(force=True)
+            path = urlparse(old_url).path.rstrip("/")
+            if path:
+                row = one(
+                    "SELECT stream_url FROM cameras WHERE stream_url LIKE ? "
+                    "ORDER BY (stream_url != '') DESC, id LIMIT 1",
+                    (f"%{path}%",),
+                )
+                if row and row["stream_url"]:
+                    return str(row["stream_url"])
+        except Exception:
+            pass
+        return old_url
+
+    try:
+        stream_url = fresh_stream_url(stream_url)
+        response = request_whep(stream_url)
+        if response.status_code == 401:
+            retry_url = fresh_stream_url(stream_url)
+            if retry_url != stream_url:
+                stream_url = retry_url
+                response = request_whep(stream_url)
         if not response.ok:
             return jsonify({
                 "ok": False,
@@ -2460,6 +2788,7 @@ def _ingest_viewer_event(ev: dict, floor_id: int | None = None):
     )
     if event_id:
         _evaluate_alarm(event_id, cam, category, title, ts, ev)
+        _automation_on_event(cam_ref, cam.get("name") or cam_ref, ev)
     return cam["id"]
 
 
@@ -2526,6 +2855,60 @@ def api_use_viewer():
         return jsonify({"error": "VHS-Viewer not found at this URL"}), 400
     set_viewer_url(url)
     return jsonify({"ok": True, "viewer": probed})
+
+
+_SEC_NET_STATE = {"ts": 0.0, "sent": 0, "recv": 0}
+
+
+@app.get("/api/system/stats")
+@login_required
+def api_system_stats():
+    """CPU/RAM/диски/сеть для live-мониторинга в подвале Security."""
+    if psutil is None:
+        return jsonify({"ok": False, "error": "psutil не установлен"}), 200
+    try:
+        cpu = psutil.cpu_percent(interval=None)
+        vm = psutil.virtual_memory()
+        ram = {
+            "percent": round(vm.percent, 1),
+            "used_mb": round((vm.total - vm.available) / 1024 / 1024, 1),
+            "total_mb": round(vm.total / 1024 / 1024, 1),
+        }
+        disks = []
+        seen = set()
+        for part in psutil.disk_partitions(all=False):
+            if "cdrom" in (part.opts or "").lower() or part.mountpoint in seen:
+                continue
+            seen.add(part.mountpoint)
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+            except (PermissionError, OSError):
+                continue
+            label = (part.device or part.mountpoint).rstrip("\\/")
+            if label.endswith(":"):
+                label = label[:-1]
+            disks.append({"label": label, "mount": part.mountpoint,
+                          "percent": round(usage.percent, 1)})
+
+        counters = psutil.net_io_counters()
+        now = time.time()
+        sent = int(counters.bytes_sent or 0)
+        recv = int(counters.bytes_recv or 0)
+        elapsed = now - float(_SEC_NET_STATE.get("ts") or 0.0)
+        sent_mbps = recv_mbps = None
+        if elapsed > 0.05 and _SEC_NET_STATE.get("ts"):
+            sent_mbps = round((sent - _SEC_NET_STATE["sent"]) * 8 / elapsed / 1_000_000, 2)
+            recv_mbps = round((recv - _SEC_NET_STATE["recv"]) * 8 / elapsed / 1_000_000, 2)
+        _SEC_NET_STATE.update({"ts": now, "sent": sent, "recv": recv})
+        return jsonify({
+            "ok": True,
+            "cpu": {"percent": round(cpu, 1)},
+            "ram": ram,
+            "disks": disks,
+            "network": {"sent_mbps": sent_mbps, "recv_mbps": recv_mbps},
+        })
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 200
 
 
 @app.route("/system")

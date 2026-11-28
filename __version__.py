@@ -1,6 +1,6 @@
-﻿"""Информация о версии и авторе VHS-Security."""
+"""Информация о версии и авторе VHS-Security."""
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Andrew Geben"
 __copyright__ = "Copyright (c) 2026 Andrew Geben"
 __license__ = "Proprietary"

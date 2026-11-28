@@ -2,6 +2,7 @@
   const state = {
     cameras: [], mode: "building", objectKey: null, detailKey: null, page: 0,
     cols: 3, rows: 2, perPage: 6, signature: "", players: new Map(), timer: null,
+    connecting: new Set(), reconnectTimers: new Map(), cameraById: new Map(),
   };
 
   document.body.classList.add("mosaic-body");
@@ -342,10 +343,27 @@
   }
 
   function teardown() {
+    for (const timer of state.reconnectTimers.values()) {
+      clearTimeout(timer);
+    }
+    state.reconnectTimers.clear();
+    state.connecting.clear();
     for (const handle of state.players.values()) {
       try { handle.close(); } catch (e) {}
     }
     state.players.clear();
+  }
+
+  function scheduleReconnect(tile, camera, delay = 2500) {
+    if (!tile || !camera || !camera.stream_url) return;
+    const old = state.reconnectTimers.get(camera.id);
+    if (old) clearTimeout(old);
+    const timer = setTimeout(() => {
+      state.reconnectTimers.delete(camera.id);
+      if (!document.body.contains(tile)) return;
+      connectTile(tile, state.cameraById.get(camera.id) || camera);
+    }, delay);
+    state.reconnectTimers.set(camera.id, timer);
   }
 
   function updateTile(tile, camera) {
@@ -367,25 +385,44 @@
     }
   }
 
+  function tileError(tile, message) {
+    let box = tile.querySelector(".mosaic-player-error");
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "mosaic-player-error";
+      tile.appendChild(box);
+    }
+    box.textContent = message;
+    return box;
+  }
+
   async function connectTile(tile, camera) {
-    if (!camera.stream_url || state.players.has(camera.id)) return;
+    if (!camera.stream_url || state.players.has(camera.id) || state.connecting.has(camera.id)) return;
     const video = tile.querySelector("video");
     if (!video || !window.VHSWhep) return;
+    state.connecting.add(camera.id);
+    let handle = null;
     try {
-      const handle = await window.VHSWhep.connect(video, camera.stream_url, {
+      handle = await window.VHSWhep.connect(video, camera.stream_url, {
         onState(status) {
           if (status === "playing") {
             const old = tile.querySelector(".mosaic-player-error");
             if (old) old.remove();
+            const retry = state.reconnectTimers.get(camera.id);
+            if (retry) { clearTimeout(retry); state.reconnectTimers.delete(camera.id); }
+          }
+          if (status === "failed" || status === "disconnected") {
+            if (state.players.get(camera.id) === handle) state.players.delete(camera.id);
+            scheduleReconnect(tile, state.cameraById.get(camera.id) || camera);
           }
         },
       });
       state.players.set(camera.id, handle);
     } catch (exc) {
-      const box = document.createElement("div");
-      box.className = "mosaic-player-error";
-      box.textContent = `Поток недоступен: ${exc.message}`;
-      tile.appendChild(box);
+      tileError(tile, `Поток недоступен: ${exc.message}`);
+      scheduleReconnect(tile, camera, 5000);
+    } finally {
+      state.connecting.delete(camera.id);
     }
   }
 
@@ -463,7 +500,7 @@
         if (placeholder) placeholder.remove();
       }
       updateTile(tile, camera);
-      tile.addEventListener("click", () => openMosaicFullscreen(camera));
+      tile.addEventListener("click", () => openMosaicFullscreen(state.cameraById.get(String(camera.id)) || camera));
       const ptzButton = tile.querySelector(".mosaic-ptz-btn");
       if (ptzButton) ptzButton.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -507,7 +544,11 @@
 
   function updateStatus(data) {
     state.cameras = data.cameras || [];
-    const signature = state.cameras.map((c) => `${c.id}:${c.stream_url || ""}`).join("|");
+    state.cameraById = new Map(state.cameras.map((camera) => [String(camera.id), camera]));
+    // URL/токен WHEP меняется регулярно; это не повод пересоздавать плееры.
+    const signature = state.cameras.map((c) =>
+      `${c.id}:${c.camera_ref || ""}:${c.floor_id || ""}:${c.building_id || ""}:${c.name || ""}`
+    ).join("|");
     if (signature !== state.signature) {
       state.signature = signature;
       render();
@@ -521,7 +562,11 @@
     const start = state.page * state.perPage;
     for (const camera of detail.cameras.slice(start, start + state.perPage)) {
       const tile = document.querySelector(`[data-camera-id="${camera.id}"]`);
-      if (tile) updateTile(tile, camera);
+      if (!tile) continue;
+      updateTile(tile, camera);
+      if (!state.players.has(camera.id) && !state.connecting.has(camera.id)) {
+        connectTile(tile, camera);
+      }
     }
     const pages = Math.max(1, Math.ceil(detail.cameras.length / state.perPage));
     const status = document.getElementById("mosaicStatus");
